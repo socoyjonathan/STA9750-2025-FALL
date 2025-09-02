@@ -12,19 +12,19 @@ website:
     search: true
     right:
       - text: "Home"
-        href: "./index.html"
+        href: "./mp00.html"
       - text: "Mini Project 01"
-        href: "./Mini-Project-01.html"
+        href: "./mp01.html"
       - text: "Mini Project 02"
-        href: "./Mini-Project-02.html"
+        href: "./mp02.html"
       - text: "Mini Project 03"
-        href: "./Mini-Project-03.html"
+        href: "./mp03.html"
       - text: "Mini Project 04"
-        href: "./Mini-Project-04.html"
+        href: "../mp04.html"
       - text: "About"
         href: "./about.html"
       - text: "Contact"
-        href: "./Contact.html"
+        href: "./contact.html"
     
 format:
   html:

@@ -1,0 +1,65 @@
+---
+title: "Contact Information"
+---
+
+<div style="display: flex; justify-content: center; gap: 100px;">
+  <a href="mailto:jonathan.sucucsocoy@baruchmail.cuny.edu" target="_blank" 
+     style="background-color:#b8860b; color:white; padding:10px 20px; border-radius:8px; text-decoration:none;">
+    Email Me
+  </a>
+  
+  <a href="tel:+19317875840" 
+     style="background-color:#b8860b; color:white; padding:10px 20px; border-radius:8px; text-decoration:none;">
+    Call Me
+  </a>
+  
+  
+   <a href="https://www.linkedin.com/in/jonathan-socoy/" 
+     style="background-color:#b8860b; color:white; padding:10px 20px; border-radius:8px; text-decoration:none;">
+    LinkedIn
+  </a>
+  
+  
+  <div style="text-align: center;">
+  <a href="Resume.pdf" target="_blank" style="background-color:#b8860b; color:white; padding:10px 20px; border-radius:8px; text-decoration:none;">
+    View Resume
+  </a>
+</div>
+
+</div>
+
+
+
+
+```{r}
+#| echo: false
+#| message: false
+#| warning: false
+
+if(!require("leaflet")){
+    options(repos=c(CRAN="https://cloud.r-project.org"))
+    install.packages("leaflet")
+    stopifnot(require("leaflet"))
+}
+
+baruch_longitude <- -73.98333
+baruch_latitude  <- +40.75028
+
+leaflet() |>
+  addTiles() |>
+  setView(baruch_longitude, baruch_latitude, zoom=17) |>
+  addPopups(baruch_longitude, baruch_latitude, 
+            "I am a Master's student at <b>Baruch College</b>!")
+```
+
+
+
+
+
+
+```{r}
+#| include: false
+1+1
+```
+--------------
+Last Updated: `r format(Sys.time(), "%A %m %d, %Y at %H:%M%p")`
