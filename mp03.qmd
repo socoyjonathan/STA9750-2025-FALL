@@ -2,7 +2,6 @@
 title: "Mini Project 03"
 ---
 
-
 Mini-Project #03: TBD
 Due Dates:
 
