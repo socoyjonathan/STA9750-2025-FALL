@@ -11,7 +11,7 @@ website:
     background: primary
     search: true
     right:
-      - text: "Home"
+      - text: Home
         href: "./mp00.html"
       - text: "Mini Project 01"
         href: "./mp01.html"
@@ -21,9 +21,9 @@ website:
         href: "./mp03.html"
       - text: "Mini Project 04"
         href: "./mp04.html"
-      - text: "About"
+      - text: About
         href: "./about.html"
-      - text: "Contact"
+      - text: Contact
         href: "./contact.html"
     
 format:
