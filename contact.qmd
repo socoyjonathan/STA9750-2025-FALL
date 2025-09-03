@@ -2,6 +2,7 @@
 title: "Contact Information"
 ---
 
+
 <div style="display: flex; justify-content: center; gap: 100px;">
   <a href="mailto:jonathan.sucucsocoy@baruchmail.cuny.edu" target="_blank" 
      style="background-color:#b8860b; color:white; padding:10px 20px; border-radius:8px; text-decoration:none;">
