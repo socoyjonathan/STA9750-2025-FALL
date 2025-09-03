@@ -20,7 +20,7 @@ website:
       - text: "Mini Project 03"
         href: "./mp03.html"
       - text: "Mini Project 04"
-        href: "../mp04.html"
+        href: "./mp04.html"
       - text: "About"
         href: "./about.html"
       - text: "Contact"
