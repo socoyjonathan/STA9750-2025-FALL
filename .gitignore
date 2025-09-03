@@ -15,5 +15,6 @@ data/**
 .Rhistory
 /.quarto/*
 **/gganim*
+
+
 /.quarto/
-docs
