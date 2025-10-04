@@ -1,0 +1,35 @@
+project:
+  type: website
+  output-dir: docs
+  
+website:
+  title: "STA 9750 Submission Material"
+  description:
+    Course Projects for STA 9750 at Baruch College
+  site-url: "https://socoyjonathan.github.io/STA9750-2025-FALL/"
+  navbar:
+    background: primary
+    search: true
+    right:
+      - text: Home
+        href: "./index.html"
+      - text: "Mini Project 01"
+        href: "./mp01.html"
+      - text: "Mini Project 02"
+        href: "./mp02.html"
+      - text: "Mini Project 03"
+        href: "./mp03.html"
+      - text: "Mini Project 04"
+        href: "./mp04.html"
+      - text: About
+        href: "./about.html"
+      - text: Contact
+        href: "./contact.html"
+    
+format:
+  html:
+    theme: solar
+    toc: false
+
+editor:
+  mode: source
