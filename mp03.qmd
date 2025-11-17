@@ -69,7 +69,7 @@ library(viridis)
 
 The shapefile is downloaded responsibly and stored as a static zip archive into the `data/mp03/` directory, where we can extract its contents and load the shapefile into R using the `sf` package and the `st_read()` function. Additionally, we make sure to simplify our shapes down to 10km to make visualizations faster and smoother.
 
-```{r  echo=TRUE}
+```{r  echo=TRUE, results='hide'}
 download_nyc_cdb_file <- function() {
   # set up directory
   fname <- file.path("data", "mp03")
@@ -121,7 +121,7 @@ nyc_cdbs_simplified <- nyc_cdbs |>
 Next, we obtain New York City’s complete street tree inventory from NYC OpenData. This dataset contains every recorded street tree, including its species, size, health, and structural attributes. Because the full dataset is too large to download in a single request through the public API, it must be retrieved in small sections and combined into one complete file! To ensure responsible data use, we store each downloaded portion locally. This prevents repeated downloads and reduces unnecessary strain on public data servers.
 
 
-```{r echo=TRUE}
+```{r echo=TRUE, results='hide'}
 download_nyc_tree_points <- function(BATCH_SIZE = 50000, ENDPOINT = "https://data.cityofnewyork.us/resource/hn5i-inap.geojson"){
 
   # set up directory
