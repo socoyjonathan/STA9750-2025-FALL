@@ -4,6 +4,7 @@ author: "socoyjonathan"
 mode: source
 format:
     html:
+        embed-resources: false
         code-fold: true
         theme: flatly
         code-summary: |
@@ -232,9 +233,13 @@ ggplot() +
     axis.ticks = element_blank()
   )
 
+# Save it externally
+if (!dir.exists("figures")) dir.create("figures")
+ggsave("figures/stree_trees_map.png", width = 6, height = 4, dpi = 96)
+
 
 ```
-
+![](figures/stree_trees_map.png)
 
 But let's make an interactive NYC map of every **Prunus** tree, my favorite species:
 
@@ -270,8 +275,11 @@ filtered_trees <- trees |>
     between(.risk, risk_range[1], risk_range[2]),
   )
 
+# Make sure the folder exists
+if (!dir.exists("maps")) dir.create("maps")
+
 # Interactive Leaflet map
-leaflet(filtered_trees) |>
+leaflet_map <- leaflet(filtered_trees) |>
   addProviderTiles("CartoDB.Positron") |>
   addCircleMarkers(
     lng = ~st_coordinates(geometry)[,1],
@@ -286,9 +294,13 @@ leaflet(filtered_trees) |>
     colors = "pink",
     labels = "Prunus species",
     title = "Filtered Species"
-  )
+  ) 
 
+# Save the interactive map
+htmlwidgets::saveWidget(leaflet_map, file = "maps/prunus_map.html")
 ```
+
+<iframe src="maps/prunus_map.html" width="100%" height="600px"></iframe>
 
 
 ## Task 4: District-Level Analysis of Tree Coverage
