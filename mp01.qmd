@@ -10,13 +10,14 @@ format:
 # Acquire Data
 Let's download the data files and load the TSV files on tables.
 ```{r echo=TRUE, results='hide', message='hide'}
-if (!require("tidyverse")) install.packages("tidyverse")
-if (!require("DT")) install.packages("DT")
 library(ggplot2)
 library(readr)
 library(dplyr)
 library(stringr)
 library(DT)
+library(lubridate)
+library(httr)
+library(jsonlite)
 
 if(!dir.exists(file.path("data", "mp01"))){
   dir.create(file.path("data", "mp01"), showWarnings=FALSE, recursive=TRUE)
@@ -36,12 +37,11 @@ if(!file.exists(COUNTRY_TOP_10_FILENAME)){
                 destfile=COUNTRY_TOP_10_FILENAME)
 }
 
-GLOBAL_TOP_10 <- read_tsv("~/Desktop/Baruch College/STAT 9750 FALL 2025/STA9750-2025-FALL/data/mp01/global_top10_alltime.csv")
-
-GLOBAL_TOP_10 <- GLOBAL_TOP_10 |>
+GLOBAL_TOP_10 <- read_tsv("data/mp01/global_top10_alltime.csv") |>
   mutate(season_title = if_else(season_title == "N/A", NA, season_title))
 
-COUNTRY_TOP_10 <- read_tsv("~/Desktop/Baruch College/STAT 9750 FALL 2025/STA9750-2025-FALL/data/mp01/country_top10_alltime.csv")
+
+COUNTRY_TOP_10 <- read_tsv("data/mp01/country_top10_alltime.csv")
 
 ```
 
@@ -50,7 +50,7 @@ COUNTRY_TOP_10 <- read_tsv("~/Desktop/Baruch College/STAT 9750 FALL 2025/STA9750
 Let's clean and prepare the data on tables:
 
 ## Global Top 10 Data:
-```{r echo=FALSE}
+```{r echo=TRUE}
 format_titles <- function(df) {
   colnames(df) <- str_replace_all(colnames(df), "_", " ") |> str_to_title()
   df
@@ -71,7 +71,7 @@ GLOBAL_TOP_10 |>
 
 ## Countries Top 10 Data:
 
-```{r echo=FALSE}
+```{r echo=TRUE}
 COUNTRY_TOP_10 |>
   select(-season_title) |>
   format_titles() |>
@@ -448,17 +448,7 @@ Prepare a press release highlighting Netflix’s recent successes in Hindi-langu
 If you assume that all Hindi-language viewing is from customers in India (a strong assumption!), you can use this viewership data to estimate the size of Netflix’s customer base in India: compute a few points and discuss the long term growth trends (if any).
 
 
-```{r, eval=FALSE}
-
-install.packages(c("httr", "jsonlite"))
-install.packages("lubridate")
-library(lubridate)
-library(httr)
-library(jsonlite)
-library(readr)
-library(dplyr)
-library(DT)
-
+```{r, echo=TRUE, results='hide'}
 
 api_key <- "IC5lKfjwmzfJOkEAbcERIMGcm2BqAGKMtA13F8LD"
 base_url <- "https://api.watchmode.com/v1/list-titles/"
@@ -482,14 +472,14 @@ titles <- data$titles$title
 
 cat("Found", length(titles), "Hindi Netflix movies:\n")
 titles_df <- data.frame(title = titles)
-write_csv(titles_df, "all_titles.csv")
+write_csv(titles_df, "data/mp01/all_titles.csv")
 ```
 
 
 To capture Netflix's recent success in Hindi-language films and TV, we first scraped the top 300 titles from Watchmode API. 
 
 ```{r echo=TRUE, results='hide'}
-all_titles <- read.csv("~/Desktop/Baruch College/STAT 9750 FALL 2025/STA9750-2025-FALL/data/mp01/all_titles.csv")
+all_titles <- read.csv("data/mp01/all_titles.csv")
 
 first_twenty_titles <- all_titles |>
   head(n = 10) |>

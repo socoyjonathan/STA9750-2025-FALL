@@ -31,7 +31,6 @@ h3 {
 
 Urban forests play a crucial role in supporting the environmental, social, and public-health wellbeing of New York City. Street trees improve the air quality, reduce the infernal sun's effect, manage stormwater, and enhance our neighborhoods. Understanding how these trees are distributed across the city and how their health varies by area is critical in support urban infrastructure and planning future maintenance efforts. In this project, we want to analyze the spatial distribution and condition of street trees across New York City Council Districts, using geospatial data from the NYC Department of City Planning and tree inventory data from the NYC Open Data Portal.
 
-
 ![](central_park_img.jpg){fig-align="center", height="30%"}
 
 # Data Acquisition
@@ -138,6 +137,7 @@ download_nyc_tree_points <- function(BATCH_SIZE = 50000, ENDPOINT = "https://dat
     return(st_read(combined_path, quiet = TRUE))
   }
 
+
   TREE_NUMBER <- 1
   ALL_DATA <- list()
   END_OF_EXPORT = FALSE
@@ -203,8 +203,6 @@ nyc_trees <- download_nyc_tree_points()
 
 # Data Integration and Initial Exploration
 
-
-
 ## Task 3: Plot All Tree Points
 
 With our council district boundaries and the NYC street tree records, we can combine them to create our first citywide visualization. This initial map simply overlays the locations of all recorded street trees on top of the district outlines.
@@ -233,13 +231,9 @@ ggplot() +
     axis.ticks = element_blank()
   )
 
-# Save it externally
-if (!dir.exists("figures")) dir.create("figures")
-ggsave("figures/stree_trees_map.png", width = 6, height = 4, dpi = 96)
 
 
 ```
-![](figures/stree_trees_map.png)
 
 But let's make an interactive NYC map of every **Prunus** tree, my favorite species:
 
@@ -250,14 +244,16 @@ But let's make an interactive NYC map of every **Prunus** tree, my favorite spec
 
 ```{r}
 # Prepare dataset
-trees <- nyc_trees |>
-  mutate(
+trees <- nyc_trees |> 
+  dplyr::mutate(
     .species   = as.character(genusspecies),
     .condition = as.character(tpcondition),
     .dbh       = as.numeric(dbh),
     .risk      = as.numeric(riskrating),
     .structure = as.character(tpstructure)
-  )
+  ) |> 
+  sf::st_as_sf()       # force back to sf if needed
+
 
 # Filter values
 selected_condition <- "Good"
@@ -275,15 +271,22 @@ filtered_trees <- trees |>
     between(.risk, risk_range[1], risk_range[2]),
   )
 
-# Make sure the folder exists
-if (!dir.exists("maps")) dir.create("maps")
+coords <- st_coordinates(filtered_trees)
+filtered_trees_coords <- filtered_trees |>
+  mutate(
+    lon = coords[,1],
+    lat = coords[,2]
+  )
+
+
+filtered_trees_coords_sample <- filtered_trees_coords |> sample_n(500)
 
 # Interactive Leaflet map
-leaflet_map <- leaflet(filtered_trees) |>
+leaflet(filtered_trees_coords_sample) |>
   addProviderTiles("CartoDB.Positron") |>
   addCircleMarkers(
-    lng = ~st_coordinates(geometry)[,1],
-    lat = ~st_coordinates(geometry)[,2],
+    lng = ~lon, 
+    lat = ~lat,
     radius = 1,
     color = "pink",
     fillOpacity = 0.8,
@@ -295,13 +298,7 @@ leaflet_map <- leaflet(filtered_trees) |>
     labels = "Prunus species",
     title = "Filtered Species"
   ) 
-
-# Save the interactive map
-htmlwidgets::saveWidget(leaflet_map, file = "maps/prunus_map.html")
-```
-
-<iframe src="maps/prunus_map.html" width="100%" height="600px"></iframe>
-
+``` 
 
 ## Task 4: District-Level Analysis of Tree Coverage
 
@@ -558,16 +555,6 @@ baruch_buffer <- st_buffer(baruch_point, dist = 500)  # 500 meters
 
 leaflet() |>
   addTiles() |> 
-  # All trees as small green points
-  addCircleMarkers(
-    data = cd_to_borough,
-    radius = 2,
-    color = "green",
-    stroke = FALSE,
-    fillOpacity = 0.5,
-    popup = ~paste("Species:", genusspecies, "<br>",
-                   "Condition:", tpcondition)
-  ) |>
   # Closest tree as orange
   addCircleMarkers(
     data = closest_tree_to_Baruch,
