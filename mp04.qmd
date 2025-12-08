@@ -505,6 +505,7 @@ show_ces_table(smallest_avg_month_revision)
 
 and **February** had the smallest average absolute revisions with **`r smallest_avg_month_revision$ave_abs_revision`**. 
 
+
 ```{r}
 # Average Absolute CES Revision by Month
 
