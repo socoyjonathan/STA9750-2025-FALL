@@ -21,6 +21,8 @@ website:
         href: "./mp03.html"
       - text: "Mini Project 04"
         href: "./mp04.html"
+      - text: "Final Project"
+        href: "./final_project.html"
       - text: About
         href: "./about.html"
       - text: Contact
