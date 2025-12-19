@@ -1,7 +1,7 @@
 project:
   type: website
   output-dir: docs
-  
+
 website:
   title: "STA 9750 Submission Material"
   description:
@@ -25,7 +25,7 @@ website:
         href: "./about.html"
       - text: Contact
         href: "./contact.html"
-    
+
 format:
   html:
     theme: solar

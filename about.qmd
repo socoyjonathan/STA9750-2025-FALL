@@ -1,7 +1,7 @@
 ---
 title: "About Me"
 ---
-
+ 
 
 Hola! My name is Jonathan Socoy, 
 I have a B.S. in Applied Math from Columbia University and 

@@ -1828,7 +1828,7 @@ The proposed legislation would **reward municipalities** that demonstrate:
 Funding could take the form of **infrastructure grants**, **low-interest construction loans**, or **zoning reform assistance**, ensuring that cities like Abilene can replicate Myrtle Beach’s success story.
 
 
-
+ 
 ## Final Insights 
 
 Overall, this has been a marvelous data science project exploring housing affordability and abrogating for more YIMBY-friendly housing policies.
