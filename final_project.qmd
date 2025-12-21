@@ -4,12 +4,9 @@ author: "socoyjonathan"
 mode: source
 format:
   html:
+    html-math-method: mathjax
     toc: true
     toc-depth: 3
-    code-summary: |
-          <span style='display:inline-block; padding:1px 2px;
-          background-color:#000814; color:white; border-radius:2px; font-family: Arial,
-          sans-serif; font-weight:bold; font-size:15px; cursor:pointer;'>R Code</span>
     toc-location: left
     code-fold: true
     code-tools: true
@@ -23,233 +20,441 @@ execute:
   message: false
 ---
 
-
-## Executive Summary
-
-This report investigates whether high residential density became a liability for property values in New York City following the COVID-19 pandemic. Using Department of Finance sales data (2017-2023) and American Community Survey density measures, I initially found evidence of a **density penalty**. However, team multivariable analysis reveals this effect was **spurious**—the true driver is educational attainment, not density itself.
-
----
-
 ## Introduction
 
-### Overarching Question
+Prior to the pandemic, highly dense neighborhoods were known for exacerbating prices due to close proximity to jobs, services, social spaces, transportation access, and a plethora of amenities. But the pandemic introduced unprecedented challenges including the closing of offices and the collapse of transit ridership reducing the premium for living near work, and remote work expanded rapidly increasing demand for personal space that is scarce in denser areas.
 
-**Did COVID-19 reshape the relationship between neighborhood characteristics and property values across NYC's Community Districts (CDs)?**
+This project asks the specific question: **Did high residential density become a penalty for property values post-COVID across NYC's Community Districts, and did this 'density penalty vary by baseline density level?'** Rather than asking whether dense neighborhoods became “expensive” due to the pandemic or comparing cities or regions, his analysis examines variation within a single metropolitan housing market, that is NYC. By holding constant citywide and labor market conditions, this analysis isolates whether density or neighborhood characteristics correlated with density, shaped post-COVID housing price trajectories.
 
-The COVID-19 pandemic disrupted established urban economics principles. Remote work reduced the importance of proximity to jobs and transit. Health concerns heightened awareness of crowding. Crime and safety dynamics shifted during lockdowns. Lifestyle preferences evolved toward space and outdoor access.
+I first evaluate whether residential density predicts post-COVID housing price changes in isolation and across density levels. Then, I integrate density into a broader multivariable framework alongside education, transit usage, crime, and job accessibility, not only allowing the analysis to distinguish whether density operates independently or merely proxies for other neighborhood characteristics, but also allows to answer our overall question. 
 
-Our research team investigates five key neighborhood characteristics:
 
-1. **Residential Density** (Jonathan)
-2. **Transportation Accessibility** (Tiffany)
-3. **Crime & Safety Rates** (Kelly)
-4. **Job Accessibility** (Madison)  
-5. **Educational Attainment** (Eduardo)
+### Prior Literature and Contribution
 
-### Specific Research Question
+Recent research has documented sharp spatial divergence in U.S. housing markets during the COVID-19 pandemic. Hermann and Whitney (2024) show that from 2020 to 2023, home prices grew fastest in lower-density counties, suggesting that the pandemic weakened the traditional density premium as households prioritized space and reduced crowding. While compelling, this evidence operates at a coarse geographic scale: counties often bundle dense urban cores together with suburban and exurban areas, making it difficult to distinguish within-city neighborhood dynamics from broader regional sorting.
 
-**Did residential density become a penalty for property values after COVID-19?**
+This project builds directly on that literature by shifting the unit of analysis to New York City’s 59 community districts. Focusing on a single metropolitan area allows neighborhoods to be compared under identical citywide conditions while preserving sharp variation in residential density, housing stock, income, and demographic composition. This design enables a more granular test of whether density itself became a liability during COVID or whether the observed patterns reflect correlated neighborhood traits.
 
-Prior to the pandemic, high-density neighborhoods commanded premium prices due to proximity to jobs, services, and amenities. The pandemic introduced challenges: health concerns about COVID transmission, fewer commutes reducing the premium for living near work, and work-from-home increasing demand for personal space that is scarce in dense areas.
+I develop a hierarchy of regression models, beginning with density alone and progressively adding socioeconomic controls and borough fixed effects. his approach makes it possible to evaluate whether density retains explanatory power once broader geographic structure and neighborhood composition are accounted for. 
 
-Rather than asking whether dense neighborhoods are "expensive", I focus on whether **dense CDs experienced different price trajectories** relative to citywide trends. This **difference-in-differences** approach controls for time-invariant CD characteristics and citywide macroeconomic shocks, isolating density-specific effects.
-
-This analysis complements my teammates' work by examining a neighborhood **structural characteristic** that is largely fixed in the short run.
 
 ## Data Acquisition and Processing
 
-### Overview of Data Sources
-
-I integrate four primary data sources, all accessed programmatically via public APIs:
-
-| **Data Source** | **API/Source** | **Purpose** | **Records** |
-|----------------|----------------|-------------|-------------|
-| **Community District Boundaries** | NYC ArcGIS REST API | Geographic units for analysis | 59 CDs |
-| **PLUTO (Tax Lots)** | NYC Open Data API | BBL-to-CD crosswalk | ~850,000 lots |
-| **DOF Rolling Sales** | NYC Open Data API | Property transactions | ~350,000 sales |
-| **American Community Survey** | US Census Bureau API | Density measures | ~2,200 tracts |
-
-```{r setup}
+```{r}
 #| label: setup
 #| code-summary: "Load Required Packages"
 
 # Suppress package startup messages
 suppressPackageStartupMessages({
-  library(httr2); library(sf); library(jsonlite); library(dplyr); library(tidyr)
-  library(stringr); library(readr); library(janitor); library(glue); library(lubridate)
-  library(scales); library(ggplot2); library(knitr); library(broom); library(tidycensus)
-  library(leaflet); library(htmlwidgets); library(viridis); library(purrr); library(tigris)
+  library(httr2)        # Modern HTTP requests
+  library(sf)           # Spatial data
+  library(jsonlite)     # JSON parsing
+  library(dplyr)        # Data manipulation
+  library(tidyr)        # Data tidying
+  library(stringr)      # String operations
+  library(readr)        # Data import
+  library(janitor)      # Data cleaning
+  library(glue)         # String interpolation
+  library(lubridate)    # Date handling
+  library(scales)       # Formatting
+  library(ggplot2)      # Visualization
+  library(knitr)        # Tables
+  library(broom)        # Model tidying
+  library(tidycensus)   # Census API
+  library(leaflet)      # Interactive maps
+  library(htmlwidgets)  # Widget export
+  library(viridis)      # Color palettes
+  library(purrr)        # Functional programming
+  library(tigris)
   options(tigris_use_cache = TRUE)
   options(dplyr.summarise.inform = FALSE)
 })
 
+# Create output directory
 if (!dir.exists("output")) dir.create("output", recursive = TRUE)
 ```
 
+
+To construct the analysis dataset, I integrate four primary data sources at the community district level:
+
+- Official **Community District Boundaries**
+- **PLUTO Tax Lots records** 
+- **Department of Finance Rolling Sales** 
+- Tract-level **American Community Survey**
+
+Once I aggregate to districts using spatial methods, my integrated analysis will allow me to study how a relatively fixed neighborhood characteristic relates to housing market changes following a citywide shock.
+
+
 ### Community District Boundaries
 
-Community Districts are NYC's primary unit of neighborhood governance, representing 59 districts across five boroughs.
+Since Community Districts are NYC’s primary unit of neighborhood governance, representing 59 districts across five boroughs, my model will incorporate these boundaries for my geographic units. These boundaries provide an ideal spatial unit: large enough for stable price measures, yet fine enough to capture meaningful neighborhood variation.
 
-```{r get-cd-shapes}
+```{r}
 #| label: get-cd-shapes
 #| code-summary: "Download Community District Boundaries"
 
+#' Download NYC Community District Boundaries
+#'
+#' Purpose:
+#'   Retrieves official NYC Community District (CD) boundaries from the
+#'   NYC ArcGIS REST API and standardizes them for spatial analysis.
+#'
+#' Key design choices:
+#'   • Local caching to avoid repeated network calls
+#'   • Geometry transformed to NYC State Plane (EPSG:2263) for area-accurate analysis
+#'   • Creation of a human-readable cd_id (MN01, BK12...)
+#'   • Filtering to the 59 official community districts
+#'
+#' @param dir_path Directory for caching downloaded data
+#' @return sf object with CD boundaries and standardized identifiers
 get_cd_shapes <- function(dir_path = "data") {
+  # Ensure cache directory exists
   if (!dir.exists(dir_path)) dir.create(dir_path, recursive = TRUE)
+  # Cache file paths
   fname <- file.path(dir_path, "cd_shapes.rds")
   geojson_file <- file.path(dir_path, "cd_shapes.geojson")
   
+  # Use cached version if available
   if (file.exists(fname)) {
     message("Using cached CD shapes: ", fname)
     cd_shapes <- readRDS(fname)
+    
+    # Check if cd_id exists or are upgraded with standardized IDs, if not create cd_id
     if (!"cd_id" %in% names(cd_shapes)) {
       message("Updating cached version with cd_id column...")
-      cd_shapes <- cd_shapes |> st_transform("EPSG:2263") |>
+      # Re-project for consistency with spatial analysis
+      cd_shapes <- cd_shapes |>
+        st_transform("EPSG:2263") |>
         mutate(
-          boro_cd = as.integer(BoroCD), boro_num = substr(sprintf("%03d", boro_cd), 1, 1),
-          boro_abbr = case_when(boro_num == "1" ~ "MN", boro_num == "2" ~ "BX", boro_num == "3" ~ "BK",
-                               boro_num == "4" ~ "QN", boro_num == "5" ~ "SI", TRUE ~ NA_character_),
-          cd_num = sprintf("%02d", boro_cd %% 100), cd_id = paste0(boro_abbr, cd_num)
-        ) |> filter(as.integer(cd_num) <= 18)
+          # Numeric borough-district code (... 101, 204)
+          boro_cd = as.integer(BoroCD),
+          
+          # Extract borough digit (1–5)
+          boro_num = substr(sprintf("%03d", boro_cd), 1, 1),
+          
+          # Map borough digit to standard abbreviation
+          boro_abbr = case_when(
+            boro_num == "1" ~ "MN",
+            boro_num == "2" ~ "BX",
+            boro_num == "3" ~ "BK",
+            boro_num == "4" ~ "QN",
+            boro_num == "5" ~ "SI",
+            TRUE ~ NA_character_
+          ),
+          
+          # Two-digit community district number (...01, 02)
+          cd_num = sprintf("%02d", boro_cd %% 100),
+          
+          # Final standardized ID (...MN01, QN14)
+          cd_id = paste0(boro_abbr, cd_num)
+        ) |>
+        
+        # Remove non-standard districts (>18)
+        filter(as.integer(cd_num) <= 18)
+      
+      # Re-save with cd_id
       saveRDS(cd_shapes, fname)
     }
+    
     return(cd_shapes)
   }
   
   message("Downloading Community Districts from NYC ArcGIS API...")
+  
+  # ArcGIS REST API request:
   tryCatch({
-    req <- request("https://services5.arcgis.com/GfwWNkhOj9bNBqoJ/arcgis/rest/services/NYC_Community_Districts/FeatureServer/0/query") |>
-      req_url_query(where = "1=1", outFields = "*", outSR = "4326", f = "geojson") |>
+    
+    # # Request all features and return GeoJSON for sf compatibility
+    req <- request("https://services5.arcgis.com/GfwWNkhOj9bNBqoJ/arcgis/rest/services/NYC_Community_Districts/FeatureServer/0/query"       ) |>
+      req_url_query(
+        where = "1=1",
+        outFields = "*",
+        outSR = "4326", # WGS84 for API output
+        f = "geojson"
+      ) |>
       req_headers("User-Agent" = "Mozilla/5.0")
+    
+    # Execute request and cache raw GeoJSON
     resp <- req_perform(req)
     writeLines(resp_body_string(resp), geojson_file)
     
-    cd_shapes <- st_read(geojson_file, quiet = TRUE) |> st_transform("EPSG:2263") |>
+    # Read and standardize spatial data
+    cd_shapes <- st_read(geojson_file, quiet = TRUE) |>
+      st_transform("EPSG:2263") |>
       mutate(
-        boro_cd = as.integer(BoroCD), boro_num = substr(sprintf("%03d", boro_cd), 1, 1),
-        boro_abbr = case_when(boro_num == "1" ~ "MN", boro_num == "2" ~ "BX", boro_num == "3" ~ "BK",
-                             boro_num == "4" ~ "QN", boro_num == "5" ~ "SI", TRUE ~ NA_character_),
-        cd_num = sprintf("%02d", boro_cd %% 100), cd_id = paste0(boro_abbr, cd_num)
-      ) |> filter(as.integer(cd_num) <= 18)
+        boro_cd = as.integer(BoroCD),
+        boro_num = substr(sprintf("%03d", boro_cd), 1, 1),
+        boro_abbr = case_when(
+          boro_num == "1" ~ "MN",
+          boro_num == "2" ~ "BX",
+          boro_num == "3" ~ "BK",
+          boro_num == "4" ~ "QN",
+          boro_num == "5" ~ "SI",
+          TRUE ~ NA_character_
+        ),
+        cd_num = sprintf("%02d", boro_cd %% 100),
+        cd_id = paste0(boro_abbr, cd_num)
+      ) |>
+      # Keep only the 59 official community districts
+      filter(as.integer(cd_num) <= 18)
     
-    if (nrow(cd_shapes) != 59) warning("Expected 59 CDs, got ", nrow(cd_shapes))
-    else message("Successfully loaded 59 Community Districts")
+    # Data integrity check
+    if (nrow(cd_shapes) != 59) {
+      warning("Expected 59 CDs, got ", nrow(cd_shapes))
+    } else {
+      message("Successfully loaded 59 Community Districts")
+    }
     
     saveRDS(cd_shapes, fname)
     cd_shapes
-  }, error = function(e) stop("ERROR downloading CD shapes: ", e$message))
+    
+  }, error = function(e) {
+    stop("ERROR downloading CD shapes: ", e$message)
+  })
 }
 
+# Load CD boundaries (from cache or API)
 cd_shapes_raw <- get_cd_shapes()
 ```
 
-```{r cd-quality}
+**Data Quality Check:**
+
+Because community districts are the primary unit of analysis and I am aggregating housing prices and ACS variables by CD, I verify that the spatial dataset contains the expected 59 districts, spans all boroughs, and uses a consistent coordinate system before proceeding. 
+
+```{r}
 #| label: cd-quality-check
 #| code-summary: "Verify CD Data Quality"
 
+# Ensure standardized identifiers exist:
+# This block guarantees that cd_shapes_raw is in its final,
+# analysis-ready form even if it was loaded from an older cache
+# or created without necessary fields.
 if (!"cd_id" %in% names(cd_shapes_raw)) {
-  cd_shapes_raw <- cd_shapes_raw |> st_transform("EPSG:2263") |>
+  cd_shapes_raw <- cd_shapes_raw |>
+    # Re-project to NYC State Plane for spatial consistency
+    st_transform("EPSG:2263") |>
     mutate(
-      boro_cd = as.integer(BoroCD), boro_num = substr(sprintf("%03d", boro_cd), 1, 1),
-      boro_abbr = case_when(boro_num == "1" ~ "MN", boro_num == "2" ~ "BX", boro_num == "3" ~ "BK",
-                           boro_num == "4" ~ "QN", boro_num == "5" ~ "SI", TRUE ~ NA_character_),
-      cd_num = sprintf("%02d", boro_cd %% 100), cd_id = paste0(boro_abbr, cd_num)
-    ) |> filter(as.integer(cd_num) <= 18)
+      boro_cd = as.integer(BoroCD),
+      boro_num = substr(sprintf("%03d", boro_cd), 1, 1),
+      boro_abbr = case_when(
+        boro_num == "1" ~ "MN",
+        boro_num == "2" ~ "BX",
+        boro_num == "3" ~ "BK",
+        boro_num == "4" ~ "QN",
+        boro_num == "5" ~ "SI",
+        TRUE ~ NA_character_
+      ),
+      cd_num = sprintf("%02d", boro_cd %% 100),
+      cd_id = paste0(boro_abbr, cd_num)
+    ) |>
+    # Restrict to the 59 official community districts
+    filter(as.integer(cd_num) <= 18)
 }
 
+# Overall integrity summary
 tibble(
   Metric = c("Total Community Districts", "Number of Boroughs", "Coordinate System"),
-  Value = c(as.character(nrow(cd_shapes_raw)), as.character(n_distinct(cd_shapes_raw$boro_abbr)),
-           st_crs(cd_shapes_raw)$input)
-) |> kable(col.names = c("Metric", "Value"), caption = "Community District Data Summary", align = c("l", "r"))
+  Value = c(
+    as.character(nrow(cd_shapes_raw)),
+    as.character(n_distinct(cd_shapes_raw$boro_abbr)),
+    st_crs(cd_shapes_raw)$input
+  )
+) |>
+  kable(
+    col.names = c("Metric", "Value"),
+    caption = "Community District Data Summary",
+    align = c("l", "r")
+  )
 
-cd_shapes_raw |> st_drop_geometry() |> count(boro_abbr, name = "n_districts") |> arrange(boro_abbr) |>
-  mutate(boro_abbr = case_when(boro_abbr == "MN" ~ "Manhattan", boro_abbr == "BX" ~ "Bronx",
-                               boro_abbr == "BK" ~ "Brooklyn", boro_abbr == "QN" ~ "Queens",
-                               boro_abbr == "SI" ~ "Staten Island", TRUE ~ boro_abbr)) |>
-  kable(col.names = c("Borough", "Districts"), caption = "Community Districts by Borough", align = c("l", "r"))
+# Borough-level validation
+# Ensures each borough has the expected number of districts and
+# that no districts are missing or duplicated after filtering
+cd_shapes_raw |>
+  st_drop_geometry() |>
+  count(boro_abbr, name = "n_districts") |>
+  arrange(boro_abbr) |>
+  mutate(
+    # Expand abbreviations for report readability
+    boro_abbr = case_when(
+      boro_abbr == "MN" ~ "Manhattan",
+      boro_abbr == "BX" ~ "Bronx",
+      boro_abbr == "BK" ~ "Brooklyn",
+      boro_abbr == "QN" ~ "Queens",
+      boro_abbr == "SI" ~ "Staten Island",
+      TRUE ~ boro_abbr
+    )
+  ) |>
+  kable(
+    col.names = c("Borough", "Districts"),
+    caption = "Community Districts by Borough",
+    align = c("l", "r")
+  )
 ```
+
+
 
 ### PLUTO Data for BBL-CD Crosswalk
 
-PLUTO contains the community district assignment for each property.
+Since PLUTO contains contains comprehensive tax lot information, we can match DOF property sales data to community districts using PLUTO records to build our **density** analysis across CD neighborhoods. 
+
 
 ```{r}
 #| label: get-pluto
 #| code-summary: "Download PLUTO Data with Incremental Caching"
 
+#' Purpose:
+#'   PLUTO is ~850k rows, too large for a single API request.
+#'   This function downloads the data in fixed-size chunks and
+#'   caches each chunk locally so interrupted runs can resume.
+#' 
+#' Key aspects:
+#'   • Chunked API requests via $limit / $offset
+#'   • Per-chunk JSON caching for fault tolerance
+#'   • Final RDS cache for fast reloads in later sessions
+#'
+#' @param dir_path Directory for cached chunks and final RDS
+#' @param limit Number of records per API request
+#' @return Tibble containing full PLUTO dataset
 get_pluto <- function(dir_path = "data", limit = 50000) {
+  # Ensure cache directory exists
   if (!dir.exists(dir_path)) dir.create(dir_path, recursive = TRUE)
+  # Final combined cache 
   final_file <- file.path(dir_path, "pluto_raw.rds")
-  
+  # if final combined cache exists, we skip all API calls
   if (file.exists(final_file)) {
-    message("✓ Using cached PLUTO data: ", final_file)
+    message("Using cached PLUTO data: ", final_file)
     return(readRDS(final_file))
   }
   
   message("Downloading PLUTO from NYC Open Data API...")
+  
+  #  NYC Open Data endpoint for PLUTO
   base_url <- "https://data.cityofnewyork.us/resource/64uk-42ks.json"
-  offset <- 0; chunk_index <- 1; all_chunks <- list()
+  offset <- 0            # Controls API pagination
+  chunk_index <- 1       # Used for chunk filenames
+  all_chunks <- list()   # Holds data before final bind
   
   repeat {
+    # cache file for each chunk
     chunk_file <- file.path(dir_path, sprintf("pluto_chunk_%05d.json", chunk_index))
     
     if (!file.exists(chunk_file)) {
       message("Chunk ", chunk_index, " | offset = ", comma(offset))
+      
       tryCatch({
-        req <- request(base_url) |> req_url_query(`$limit` = limit, `$offset` = offset) |>
+        # Construct API request with pagination parameters
+        req <- request(base_url) |>
+          req_url_query(`$limit` = limit, `$offset` = offset) |>
           req_headers("User-Agent" = "Mozilla/5.0")
+        
+        # Execute request and save raw JSON to files
         resp <- req_perform(req)
         writeLines(resp_body_string(resp), chunk_file)
-        Sys.sleep(1)
-      }, error = function(e) stop("ERROR chunk ", chunk_index, ": ", e$message))
-    } else message("Using cached chunk ", chunk_index)
+        Sys.sleep(1) # careful rate limiting to avoid API throttling
+        
+      }, error = function(e) {
+        stop("ERROR: chunk ", chunk_index, ": ", e$message)
+      })
+    } else {
+      message("Using cached chunk ", chunk_index)
+    }
     
+    # Read cached chunk
     chunk_data <- fromJSON(chunk_file)
-    if (length(chunk_data) == 0 || nrow(chunk_data) == 0) { message("No more data"); break }
+    
+    # Empty response = no more records from API
+    if (length(chunk_data) == 0 || nrow(chunk_data) == 0) {
+      message("No more data")
+      break
+    }
     
     message("Rows: ", comma(nrow(chunk_data)))
+    
+    # Store chunk for later binding
     all_chunks[[chunk_index]] <- chunk_data
+    
+    # If fewer rows than requested, final page
     if (nrow(chunk_data) < limit) break
     
-    offset <- offset + limit; chunk_index <- chunk_index + 1
+    # Increment pagination state
+    offset <- offset + limit
+    chunk_index <- chunk_index + 1
   }
   
+  # Combine all chunks into one tibble
   pluto_raw <- bind_rows(all_chunks)
+  # Save final dataset for fast future reloads
   saveRDS(pluto_raw, final_file)
   message("SUCCESS: ", comma(nrow(pluto_raw)), " rows")
+  
   pluto_raw
 }
 
 pluto_raw <- get_pluto()
 ```
 
-```{r pluto-crosswalk}
+**Create BBL-CD Crosswalk:**
+
+Because PLUTO data are recorded at the parcel level, I construct a crosswalk that assigns each BBL to a standardized NYC Community District for aggregation and analysis.
+
+```{r}
 #| label: pluto-crosswalk
 #| code-summary: "Create BBL to CD Mapping"
 
+#' Create PLUTO to CD Crosswalk
+#' Maps Borough-Block-Lot (BBL) identifiers to Community Districts.
+#' @param dir_path Directory for cached data
+#' @return Tibble mapping BBL → CD
 create_pluto_crosswalk <- function(dir_path = "data") {
+  # Cached output file
   crosswalk_file <- file.path(dir_path, "pluto_crosswalk.rds")
   
   if (file.exists(crosswalk_file)) {
-    message("✓ Using cached PLUTO crosswalk")
+    message("Using cached PLUTO crosswalk")
     return(readRDS(crosswalk_file))
   }
   
   message("Creating PLUTO crosswalk...")
+  
+  # Load required datasets
   pluto_raw <- get_pluto(dir_path = dir_path)
   cd_shapes_raw <- get_cd_shapes(dir_path = dir_path)
   
-  cd_lookup <- cd_shapes_raw |> st_drop_geometry() |> select(boro_cd, cd_id) |> distinct()
+  # Build CD lookup table ~ standardized ID mapping
+  cd_lookup <- cd_shapes_raw |>
+    st_drop_geometry() |>
+    select(boro_cd, cd_id) |>
+    distinct()
   
+  # Construct crosswalk from PLUTO
   crosswalk <- pluto_raw |>
+    # Remove missing or placeholder community district codes
     filter(!is.na(cd), cd != "0", cd != "99") |>
-    mutate(bbl = as.character(bbl), bbl = str_replace(bbl, "\\.0+$", ""), boro_cd = as.integer(cd)) |>
-    filter(nchar(bbl) == 10) |> select(bbl, boro_cd) |>
-    left_join(cd_lookup, by = "boro_cd") |> filter(!is.na(cd_id)) |>
+    mutate(
+      bbl = as.character(bbl),
+      # Remove trailing decimal artifacts from API import
+      bbl = str_replace(bbl, "\\.0+$", ""),
+      # Convert PLUTO CD field to numeric borough-district code
+      boro_cd = as.integer(cd)
+    ) |>
+    
+    # Valid NYC BBLs are exactly 10 digits ~ removes malformed or partial identifiers
+    filter(nchar(bbl) == 10) |>
+    select(bbl, boro_cd) |>
+    
+    # Attach standardized CD identifiers
+    left_join(cd_lookup, by = "boro_cd") |>
+    
+    # Drop parcels that could not be matched to a valid CD
+    filter(!is.na(cd_id)) |>
+    
+    # Enforce one-to-one uniqueness
     distinct(bbl, cd_id, boro_cd)
   
-  message("✓ Crosswalk covers ", n_distinct(crosswalk$cd_id), " CDs")
+  # Confirms there is coverage across the expected number of community districts
+  message("Crosswalk covers ", n_distinct(crosswalk$cd_id), " CDs")
+  
+  # Cache finalized crosswalk
   saveRDS(crosswalk, crosswalk_file)
   crosswalk
 }
@@ -257,16 +462,25 @@ create_pluto_crosswalk <- function(dir_path = "data") {
 crosswalk <- create_pluto_crosswalk()
 ```
 
+
 ### DOF Rolling Sales
 
-The Department of Finance publishes all property transactions. I focus on residential properties with arms-length transactions above $10,000.
+The Department of Finance publishes all property sales transactions in New York City. I restrict the data to residential properties (tax classes 1, 2, 2A, 2B, and 2C) with transactions exceeding $10,000  for 2017-2023.
 
-```{r get-sales}
+```{r}
 #| label: get-dof-sales
 #| code-summary: "Download DOF Sales Data for 2017-2023"
 
-get_dof_sales <- function(years = c(2017:2019, 2021:2023), dir_path = "data", limit = 50000) {
+#' Download DOF Rolling Sales Data
+#' 
+#' Retrieves NYC Department of Finance property sales transactions
+#' for selected years using chunked API requests with caching for specified years.
+get_dof_sales <- function(years = c(2017:2019, 2021:2023), 
+                          dir_path = "data", 
+                          limit = 50000) {
+  
   if (!dir.exists(dir_path)) dir.create(dir_path, recursive = TRUE)
+  
   final_file <- file.path(dir_path, "sales_raw.rds")
   
   if (file.exists(final_file)) {
@@ -275,275 +489,571 @@ get_dof_sales <- function(years = c(2017:2019, 2021:2023), dir_path = "data", li
   }
   
   message("Downloading DOF Annualized Sales from NYC Open Data API...")
+  
+  # NYC Open Data endpoint for DOF Rolling Sales
   base_url <- "https://data.cityofnewyork.us/resource/w2pb-icbu.json"
   all_sales <- list()
   
+  # Loop over years to control size of API call
   for (yr in years) {
     message("Year: ", yr)
-    offset <- 0; chunk_index <- 1; year_chunks <- list()
+    
+    offset <- 0
+    chunk_index <- 1
+    year_chunks <- list()
     
     repeat {
+      # Per-year, per-chunk cache file
       chunk_file <- file.path(dir_path, sprintf("sales_%d_chunk_%03d.json", yr, chunk_index))
       
       if (!file.exists(chunk_file)) {
         message("Chunk ", chunk_index, " | offset = ", comma(offset))
+        
         tryCatch({
+          # API request with date-bounded WHERE clause ~ SQL like code used here 
           req <- request(base_url) |>
-            req_url_query(`$limit` = limit, `$offset` = offset,
-                         `$where` = sprintf("sale_date >= '%d-01-01' AND sale_date <= '%d-12-31'", yr, yr)) |>
+            req_url_query(
+              `$limit` = limit,
+              `$offset` = offset,
+              `$where` = sprintf("sale_date >= '%d-01-01' AND sale_date <= '%d-12-31'", yr, yr)
+            ) |>
             req_headers("User-Agent" = "Mozilla/5.0")
+          
+          # Execute request and cache raw JSON
           resp <- req_perform(req)
           writeLines(resp_body_string(resp), chunk_file)
           Sys.sleep(1)
-        }, error = function(e) stop("ERROR downloading chunk ", chunk_index, " for year ", yr, ": ", e$message))
-      } else message("Using cached chunk ", chunk_index)
+          
+        }, error = function(e) {
+          stop("ERROR downloading chunk ", chunk_index, " for year ", yr, ": ", e$message)
+        })
+      } else {
+        message("Using cached chunk ", chunk_index)
+      }
       
       chunk_data <- fromJSON(chunk_file)
-      if (length(chunk_data) == 0 || nrow(chunk_data) == 0) { message("No more data for ", yr); break }
+      
+      if (length(chunk_data) == 0 || nrow(chunk_data) == 0) {
+        message("No more data for ", yr)
+        break
+      }
       
       message("Rows: ", comma(nrow(chunk_data)))
       year_chunks[[chunk_index]] <- chunk_data
+      
       if (nrow(chunk_data) < limit) break
       
-      offset <- offset + limit; chunk_index <- chunk_index + 1
+      offset <- offset + limit
+      chunk_index <- chunk_index + 1
     }
-    
+    # Combine chunks for this year
     if (length(year_chunks) > 0) {
       all_sales[[as.character(yr)]] <- bind_rows(year_chunks)
       message("Total for ", yr, ": ", comma(nrow(all_sales[[as.character(yr)]])), " rows")
     }
   }
-  
+  # Combine all years into one dataset
   sales_raw <- bind_rows(all_sales)
   saveRDS(sales_raw, final_file)
   message("SUCCESS: ", comma(nrow(sales_raw)), " rows")
+  
   sales_raw
 }
 
 sales_raw <- get_dof_sales()
 ```
 
-```{r process-sales}
+
+### Process and Match Sales to CDs
+
+Inspect the data, we note property sales are recorded at the parcel level so we need to match each sale to a CD using a two-stage matching strategy using our PLUTO crosswalk that prioritizes exact parcel identifiers and falls back to block-level inference when necessary to prepare our datasets for analysis at CD level.
+
+```{r}
 #| label: process-sales
 #| code-summary: "Clean Sales Data and Match to CDs"
 
+#' Process Sales Data with CD Matching
+#' 
+#' Uses two matching strategies:
+#' 1. Exact BBL match (preferred)
+#' 2. Block-level match (fallback)
 process_sales_data <- function(dir_path = "data") {
+  
   message("\n=== Processing Sales Data ===")
+  
+  # Sales provide parcel-level transactions
   sales_raw <- get_dof_sales(dir_path = dir_path)
+  # the crosswalk provides a standardized mapping from BBLs to community districts
   crosswalk <- create_pluto_crosswalk(dir_path = dir_path)
   
+  # Clean sales data removing sales prices less than $10000 and restricting my data to residential sales
+  # while ensuring identifier integrity
   sales_clean <- sales_raw |>
-    mutate(bbl = as.character(bbl), bbl = str_replace(bbl, "\\.0+$", ""),
-           sale_price = as.numeric(sale_price), sale_date = as.Date(sale_date),
-           tax_class = as.character(tax_class_at_time_of_sale),
-           year = as.integer(format(sale_date, "%Y"))) |>
-    filter(nchar(bbl) == 10, !is.na(sale_price), sale_price >= 10000,
-           !is.na(sale_date), !is.na(tax_class), tax_class %in% c("1", "2", "2A", "2B", "2C"))
+    mutate(
+      bbl = as.character(bbl),
+      bbl = str_replace(bbl, "\\.0+$", ""),
+      sale_price = as.numeric(sale_price),
+      sale_date = as.Date(sale_date),
+      tax_class = as.character(tax_class_at_time_of_sale),
+      year = as.integer(format(sale_date, "%Y"))
+    ) |>
+    filter(
+      # valid NYC BBL length
+      nchar(bbl) == 10,
+      !is.na(sale_price),
+      # exclude non-market / nominal transfers
+      sale_price >= 10000,
+      !is.na(sale_date),
+      !is.na(tax_class),
+      tax_class %in% c("1", "2", "2A", "2B", "2C") # residential properties only
+    )
   
-  sales_matched_exact <- sales_clean |> inner_join(crosswalk, by = "bbl")
+  # Strategy 1: Exact BBL-to-CD match
+  sales_matched_exact <- sales_clean |>
+    inner_join(crosswalk, by = "bbl")
+  
   n_exact <- nrow(sales_matched_exact)
-  message("  Exact BBL matches: ", comma(n_exact))
+  message("Exact BBL matches: ", comma(n_exact))
   
-  sales_unmatched <- sales_clean |> anti_join(crosswalk, by = "bbl")
+
+  # Identify remaining unmatched sales using anti_join
+  sales_unmatched <- sales_clean |>
+    anti_join(crosswalk, by = "bbl")
   
+  # Strategy 2: Block-level inference 
+  # When an exact parcel match fails, assign CDs based on the most
+  # common CD observed for parcels on the same borough–block
   if (nrow(sales_unmatched) > 0) {
     block_lookup <- crosswalk |>
-      mutate(block = as.integer(substr(bbl, 2, 6)), boro_digit = substr(bbl, 1, 1)) |>
+      mutate(
+        block = as.integer(substr(bbl, 2, 6)),
+        boro_digit = substr(bbl, 1, 1)
+      ) |>
       count(boro_digit, block, cd_id, boro_cd) |>
-      group_by(boro_digit, block) |> slice_max(n, n = 1, with_ties = FALSE) |> ungroup() |>
+      group_by(boro_digit, block) |>
+      # dominant CD per block
+      slice_max(n, n = 1, with_ties = FALSE) |>
+      ungroup() |>
       select(boro_digit, block, cd_id, boro_cd)
     
     sales_matched_block <- sales_unmatched |>
-      mutate(block = as.integer(substr(bbl, 2, 6)), boro_digit = substr(bbl, 1, 1)) |>
+      mutate(
+        block = as.integer(substr(bbl, 2, 6)),
+        boro_digit = substr(bbl, 1, 1)
+      ) |>
       inner_join(block_lookup, by = c("boro_digit", "block")) |>
       select(-boro_digit, -block)
     
     n_block <- nrow(sales_matched_block)
-    message("  Block-level matches: ", comma(n_block))
+    message("Block-level matches: ", comma(n_block))
+    
+    # Combine exact and inferred matches
     sales_with_cd <- bind_rows(sales_matched_exact, sales_matched_block)
   } else {
     sales_with_cd <- sales_matched_exact
     n_block <- 0
   }
   
+  # Make sure CD assignment is mostly done by strategy 1: BBL->CD
   total_matched <- nrow(sales_with_cd)
   match_rate <- total_matched / nrow(sales_clean)
-  message("  Total matched: ", comma(total_matched))
-  message("  Match rate: ", percent(match_rate, accuracy = 0.1))
+  
+  message("Total matched: ", comma(total_matched))
+  message("Match rate: ", percent(match_rate, accuracy = 0.1))
+  
   sales_with_cd
 }
 
 sales_with_cd <- process_sales_data()
 ```
 
+
 ### ACS Density Data
 
-I use ACS 5-year estimates (2015-2019) to measure pre-COVID residential density, aggregating tract-level data to CDs using area-weighted spatial intersection.
+To measure pre-COVID residential density at the community district level, I aggregate tract-level ACS estimates for population and housing units using area-weighted spatial intersection to account for partial overlaps between census tracts and district boundaries along with median income as a control. 
 
-```{r get-acs}
+```{r}
 #| label: get-acs-density
 #| code-summary: "Download and Aggregate ACS Density Data to CDs"
 
-get_acs_cd_density <- function(end_year, cd_sf = NULL, period_label = NULL, dir_path = "data") {
+#' Download ACS Density Data and Aggregate to CDs
+#' 
+#' Uses area-weighted spatial intersection to aggregate tract-level
+#' ACS data to Community Districts.
+get_acs_cd_density <- function(end_year, cd_sf = NULL, period_label = NULL,
+                                dir_path = "data") {
+  
   if (!dir.exists(dir_path)) dir.create(dir_path, recursive = TRUE)
+  
   cache_file <- file.path(dir_path, sprintf("acs_density_%s.rds", end_year))
   
   if (file.exists(cache_file)) {
     message("Using cached ACS density: ", end_year)
     base <- readRDS(cache_file)
-    if (!is.null(period_label)) base <- base |> mutate(period = period_label)
+    if (!is.null(period_label)) {
+      base <- base |> mutate(period = period_label)
+    }
     return(base)
   }
   
   message("Downloading ACS density data (", end_year, " 5-year)...")
   
+  # Ensure CD geometries are available and standardized
   if (is.null(cd_sf)) {
     cd_shapes_raw <- get_cd_shapes(dir_path = dir_path)
     cd_sf <- cd_shapes_raw
     if (!"cd_id" %in% names(cd_sf)) {
       cd_sf <- cd_sf |>
-        mutate(boro_cd = as.integer(BoroCD), boro_num = substr(sprintf("%03d", boro_cd), 1, 1),
-               boro_abbr = case_when(boro_num == "1" ~ "MN", boro_num == "2" ~ "BX", boro_num == "3" ~ "BK",
-                                    boro_num == "4" ~ "QN", boro_num == "5" ~ "SI", TRUE ~ NA_character_),
-               cd_num = sprintf("%02d", boro_cd %% 100), cd_id = paste0(boro_abbr, cd_num)) |>
+        mutate(
+          boro_cd = as.integer(BoroCD),
+          boro_num = substr(sprintf("%03d", boro_cd), 1, 1),
+          boro_abbr = case_when(
+            boro_num == "1" ~ "MN",
+            boro_num == "2" ~ "BX",
+            boro_num == "3" ~ "BK",
+            boro_num == "4" ~ "QN",
+            boro_num == "5" ~ "SI",
+            TRUE ~ NA_character_
+          ),
+          cd_num = sprintf("%02d", boro_cd %% 100),
+          cd_id = paste0(boro_abbr, cd_num)
+        ) |>
         filter(as.integer(cd_num) <= 18)
     }
   }
   
-  acs_vars <- c(total_population = "B01003_001", total_housing_units = "B25001_001", median_income = "B19013_001")
+  # ACS variable selection
+  # Population and housing units are used for density measures;
+  # income is included for socioeconomic context
+  acs_vars <- c(
+    total_population = "B01003_001",
+    total_housing_units = "B25001_001",
+    median_income = "B19013_001"
+  )
   
+  # Download tract-level ACS with geometry
+  # Tracts are the finest geography for consistent NYC-wide ACS data
   acs_tracts <- suppressMessages(
-    get_acs(geography = "tract", variables = acs_vars, year = end_year, survey = "acs5",
-           state = "NY", county = c("005", "047", "061", "081", "085"),
-           geometry = TRUE, cache_table = TRUE, output = "wide")
+    get_acs(
+      geography = "tract",
+      variables = acs_vars,
+      year = end_year,
+      survey = "acs5",
+      state = "NY",
+      county = c("005", "047", "061", "081", "085"),
+      geometry = TRUE,
+      cache_table = TRUE,
+      output = "wide"
+    )
   )
   
   acs_tracts <- acs_tracts |>
-    transmute(geoid = GEOID, total_population = total_populationE,
-             total_housing_units = total_housing_unitsE, median_income = median_incomeE, geometry = geometry) |>
+    transmute(
+      geoid = GEOID,
+      total_population = total_populationE,
+      total_housing_units = total_housing_unitsE,
+      median_income = median_incomeE,
+      geometry = geometry
+    ) |>
     filter(!is.na(total_population), total_population > 0)
-  
+  # Geometry validation and CRS alignment
   acs_tracts <- st_make_valid(acs_tracts)
   cd_sf <- st_make_valid(cd_sf)
   cd_sf <- cd_sf |> st_transform(st_crs(acs_tracts))
   
   message("Intersecting tracts with CDs...")
-  inter <- suppressWarnings(st_intersection(acs_tracts, cd_sf |> select(cd_id)))
-  inter <- inter |> mutate(inter_area = as.numeric(st_area(geometry)))
+  inter <- suppressWarnings(
+    st_intersection(acs_tracts, cd_sf |> select(cd_id))
+  )
   
+  # Spatial intersection
+  # Creates tract–CD fragments for area-weighted aggregation
+  inter <- inter |>
+    mutate(inter_area = as.numeric(st_area(geometry)))
+  
+  # Area-weight calculation
+  # Each tract contributes proportionally to CDs based on overlap area
   tract_areas <- acs_tracts |>
-    transmute(geoid, tract_area = as.numeric(st_area(geometry))) |> st_drop_geometry()
+    transmute(geoid, tract_area = as.numeric(st_area(geometry))) |>
+    st_drop_geometry()
   
-  inter <- inter |> st_drop_geometry() |> left_join(tract_areas, by = "geoid") |>
+  # apply weights to how much land area each tract has if any overlap areas
+  inter <- inter |>
+    st_drop_geometry() |>
+    left_join(tract_areas, by = "geoid") |>
     mutate(weight = if_else(tract_area > 0, inter_area / tract_area, 0))
   
   message("Aggregating to CD level...")
+  
+  # Area-weighted aggregation to CDs
+  # Preserves population totals while correctly allocating partial tracts
   cd_density <- inter |>
-    mutate(wt_population = total_population * weight, wt_housing_units = total_housing_units * weight,
-           wt_income_pop = median_income * total_population * weight,
-           wt_pop_for_income = total_population * weight) |>
+    mutate(
+      wt_population = total_population * weight,
+      wt_housing_units = total_housing_units * weight,
+      wt_income_pop = median_income * total_population * weight,
+      wt_pop_for_income = total_population * weight
+    ) |>
     group_by(cd_id) |>
-    summarise(total_population = sum(wt_population, na.rm = TRUE),
-             total_housing_units = sum(wt_housing_units, na.rm = TRUE),
-             weighted_median_income = sum(wt_income_pop, na.rm = TRUE) / sum(wt_pop_for_income, na.rm = TRUE),
-             .groups = "drop") |> arrange(cd_id)
+    summarise(
+      total_population = sum(wt_population, na.rm = TRUE),
+      total_housing_units = sum(wt_housing_units, na.rm = TRUE),
+      weighted_median_income = sum(wt_income_pop, na.rm = TRUE) / sum(wt_pop_for_income, na.rm = TRUE),
+      .groups = "drop"
+    ) |>
+    arrange(cd_id)
   
   message("Calculating density metrics...")
-  cd_areas <- cd_sf |> st_transform("EPSG:2263") |>
-    mutate(land_area_sq_mi = as.numeric(st_area(geometry)) / 27878400) |>
-    st_drop_geometry() |> select(cd_id, land_area_sq_mi)
   
-  cd_density <- cd_density |> left_join(cd_areas, by = "cd_id") |>
-    mutate(pop_density_per_sq_mi = total_population / land_area_sq_mi,
-           housing_density_per_sq_mi = total_housing_units / land_area_sq_mi, acs_year = end_year)
+  # CDs land area
+  cd_areas <- cd_sf |>
+    st_transform("EPSG:2263") |>
+    mutate(land_area_sq_mi = as.numeric(st_area(geometry)) / 27878400) |>
+    st_drop_geometry() |>
+    select(cd_id, land_area_sq_mi)
+  
+  # Population density and housing density
+  cd_density <- cd_density |>
+    left_join(cd_areas, by = "cd_id") |>
+    mutate(
+      pop_density_per_sq_mi = total_population / land_area_sq_mi,
+      housing_density_per_sq_mi = total_housing_units / land_area_sq_mi,
+      acs_year = end_year
+    )
   
   n_cds <- n_distinct(cd_density$cd_id)
-  if (n_cds != 59) warning("ACS density has ", n_cds, " CDs (expected 59)")
-  else message("ACS density covers all 59 CDs")
+  # Confirms all 59 community districts are represented
+  if (n_cds != 59) {
+    warning("ACS density has ", n_cds, " CDs (expected 59)")
+  } else {
+    message("ACS density covers all 59 CDs")
+  }
   
   saveRDS(cd_density, cache_file)
   message("Saved to: ", cache_file)
   
-  if (!is.null(period_label)) cd_density <- cd_density |> mutate(period = period_label)
+  if (!is.null(period_label)) {
+    cd_density <- cd_density |> mutate(period = period_label)
+  }
+  
   cd_density
 }
 
-cd_density <- get_acs_cd_density(end_year = 2019, period_label = "baseline")
+#  establish my baseline density level for covid penalty analysis
+cd_density <- get_acs_cd_density(
+  end_year = 2019,
+  period_label = "baseline"
+)
 ```
-
----
-
-## Data Analysis
 
 ### Build Analysis Dataset
 
-I construct a CD-level panel comparing pre-COVID (2017-2019) and post-COVID (2021-2023) periods, excluding 2020.
+After cleaning and matching all data sources to community districts, I construct a standardized dataset. I build a community-district dataset that compares property prices and density levels for our defined pre-COVID (2017-2019) and post-COVID (2021-2023) periods, excluding 2020 to avoid extreme short-term pandemic disruptions.
 
-```{r build-panel}
+
+```{r}
 #| label: build-analysis-dataset
 #| code-summary: "Construct CD-Level Analysis Dataset"
 
-build_sales_panel <- function(pre_years = c(2017, 2018, 2019), post_years = c(2021, 2022, 2023), dir_path = "data") {
+#' Build CD Sales Panel
+build_sales_panel <- function(pre_years = c(2017, 2018, 2019),
+                               post_years = c(2021, 2022, 2023),
+                               dir_path = "data") {
+  
   message("\n=== Building CD Sales Panel ===")
+  
   sales_with_cd <- process_sales_data(dir_path = dir_path)
   
   cd_panel <- sales_with_cd |>
-    mutate(period = case_when(year %in% pre_years ~ "pre_covid", year %in% post_years ~ "post_covid",
-                             TRUE ~ NA_character_)) |>
+    mutate(
+      period = case_when(
+        year %in% pre_years ~ "pre_covid",
+        year %in% post_years ~ "post_covid",
+        TRUE ~ NA_character_
+      )
+    ) |>
     filter(!is.na(period)) |>
     group_by(cd_id, boro_cd, year, period) |>
-    summarise(n_sales = n(), median_price = median(sale_price, na.rm = TRUE),
-             mean_price = mean(sale_price, na.rm = TRUE), .groups = "drop") |>
+    summarise(
+      n_sales = n(),
+      median_price = median(sale_price, na.rm = TRUE),
+      mean_price = mean(sale_price, na.rm = TRUE),
+      .groups = "drop"
+    ) |>
     arrange(year, cd_id)
   
   message("Sales panel: ", n_distinct(cd_panel$cd_id), " CDs, ", nrow(cd_panel), " rows")
+  
   cd_panel
 }
 
 cd_sales_panel <- build_sales_panel()
+
+# Create analysis dataset
 nyc_cd <- get_cd_shapes()
+
+# Verify structure
 stopifnot("cd_id must exist" = "cd_id" %in% names(nyc_cd))
 
 cd_analysis_df <- cd_sales_panel |>
-  mutate(period_group = if_else(period == "pre_covid", "pre", "post")) |>
+  mutate(
+    period_group = if_else(period == "pre_covid", "pre", "post")
+  ) |>
   group_by(cd_id, period_group) |>
-  summarise(avg_median_price = mean(median_price, na.rm = TRUE),
-           total_sales = sum(n_sales, na.rm = TRUE), .groups = "drop") |>
-  pivot_wider(names_from = period_group, values_from = c(avg_median_price, total_sales),
-             names_glue = "{.value}_{period_group}") |>
-  mutate(price_change_pct = ((avg_median_price_post - avg_median_price_pre) / avg_median_price_pre) * 100)
+  summarise(
+    avg_median_price = mean(median_price, na.rm = TRUE),
+    total_sales = sum(n_sales, na.rm = TRUE),
+    .groups = "drop"
+  ) |>
+  pivot_wider(
+    names_from = period_group,
+    values_from = c(avg_median_price, total_sales),
+    names_glue = "{.value}_{period_group}"
+  ) |>
+  mutate(
+    price_change_pct = ((avg_median_price_post - avg_median_price_pre) / avg_median_price_pre) * 100
+  )
 
+# Add density data
 cd_analysis_df <- cd_analysis_df |>
-  left_join(cd_density |> select(cd_id, pop_density_2019 = pop_density_per_sq_mi,
-                                housing_density_2019 = housing_density_per_sq_mi,
-                                median_income_2019 = weighted_median_income,
-                                total_pop_2019 = total_population,
-                                total_housing_2019 = total_housing_units), by = "cd_id")
+  left_join(
+    cd_density |>
+      select(
+        cd_id,
+        pop_density_2019 = pop_density_per_sq_mi,
+        housing_density_2019 = housing_density_per_sq_mi,
+        median_income_2019 = weighted_median_income,
+        total_pop_2019 = total_population,
+        total_housing_2019 = total_housing_units
+      ),
+    by = "cd_id"
+  )
 
-density_tercile_breaks <- quantile(cd_analysis_df$pop_density_2019, probs = c(0, 1/3, 2/3, 1), na.rm = TRUE)
+# Create density terciles
+density_tercile_breaks <- quantile(
+  cd_analysis_df$pop_density_2019,
+  probs = c(0, 1/3, 2/3, 1),
+  na.rm = TRUE
+)
 
 cd_analysis_df <- cd_analysis_df |>
   mutate(
-    density_tercile = cut(pop_density_2019, breaks = density_tercile_breaks,
-                         labels = c("Low", "Medium", "High"), include.lowest = TRUE),
-    borough = case_when(substr(cd_id, 1, 2) == "MN" ~ "Manhattan", substr(cd_id, 1, 2) == "BX" ~ "Bronx",
-                       substr(cd_id, 1, 2) == "BK" ~ "Brooklyn", substr(cd_id, 1, 2) == "QN" ~ "Queens",
-                       substr(cd_id, 1, 2) == "SI" ~ "Staten Island", TRUE ~ NA_character_)
+    density_tercile = cut(
+      pop_density_2019,
+      breaks = density_tercile_breaks,
+      labels = c("Low", "Medium", "High"),
+      include.lowest = TRUE
+    ),
+    borough = case_when(
+      substr(cd_id, 1, 2) == "MN" ~ "Manhattan",
+      substr(cd_id, 1, 2) == "BX" ~ "Bronx",
+      substr(cd_id, 1, 2) == "BK" ~ "Brooklyn",
+      substr(cd_id, 1, 2) == "QN" ~ "Queens",
+      substr(cd_id, 1, 2) == "SI" ~ "Staten Island",
+      TRUE ~ NA_character_
+    )
   )
 
 message("Analysis dataset complete: ", nrow(cd_analysis_df), " CDs")
-```
-
-### Exploratory Data Analysis
-
-```{r exploratory-data-analysis}
-#| label: exploratory-analysis
-#| code-summary: "Summary Statistics and Distributions"
 
 price_summary <- summary(cd_analysis_df$price_change_pct)
+
 ```
 
-Property value changes varied substantially across 59 community districts. The median CD experienced `r round(as.numeric(price_summary[3]), 1)`% price growth, ranging from `r round(as.numeric(price_summary[1]), 1)`% to `r round(as.numeric(price_summary[6]), 1)`%.
+---
+
+## Data Analysis 
+
+### Empirical Strategy
+
+This analysis evaluates whether residential density became a penalty for property values following the COVID-19 pandemic and whether any observed “density penalty” reflects density itself or correlated neighborhood characteristics. Because COVID represents a sharp, citywide shock, the analysis exploits variation in how New York City’s Community Districts (CDs) changed relative to one another rather than attempting to estimate an absolute causal effect.
+
+My analysis strategy proceeds in **four sequential steps**, moving from descriptive correlation to multivariable explanation. This structure allows me to assess whether density independently predicts post-COVID price changes or whether it proxies for deeper socioeconomic mechanisms.
+
+
+---
+
+### Outcome Variable
+
+First, the outcome of interest is the **percentage change in median residential property prices** at the community district level, comparing pre-COVID (2017–2019) to post-COVID (2021–2023) periods. Year 2020 is excluded to avoid short-term pandemic disruptions and abnormal transaction patterns.
+
+Formally, for each community district \( i \):
+
+$$
+\Delta P_i = \frac{\overline{P}_{i,\text{post}} - \overline{P}_{i,\text{pre}}}{\overline{P}_{i,\text{pre}}} \times 100
+$$
+
+where prices are computed using arms-length residential transactions exceeding \$10,000.
+
+---
+
+### Density Measures
+
+Baseline residential density is measured using the **2019 ACS 5-year estimates**, aggregated from census tracts to community districts via area-weighted spatial intersection. Two density measures are initially considered:
+
+- **Population density** (people per square mile)
+- **Housing density** (housing units per square mile)
+
+Because these measures capture related aspects of neighborhood structure, including both in a single regression may introduce multicollinearity and obscure interpretation. To determine which measure to retain, I assess multicollinearity using variance inflation factors (VIF).
+
+
+```{r}
+#| label: vif-check
+#| code-summary: "Variance Inflation Check for Density Measures"
+
+library(car)
+
+# Fit model including both density measures
+vif_model <- lm(
+  price_change_pct ~
+    pop_density_2019 +
+    housing_density_2019,
+  data = cd_analysis_df
+)
+
+# Compute VIFs and build tidy table explicitly
+vif_raw <- car::vif(vif_model)
+
+vif_table <- tibble(
+  variable = names(vif_raw),
+  vif = as.numeric(vif_raw)
+) |>
+  mutate(
+    variable = case_when(
+      variable == "pop_density_2019" ~ "Population Density (2019)",
+      variable == "housing_density_2019" ~ "Housing Density (2019)",
+      TRUE ~ variable
+    ),
+    vif = round(vif, 2),
+    multicollinearity = case_when(
+      vif >= 10 ~ "Severe",
+      vif >= 5  ~ "Moderate",
+      TRUE      ~ "Low"
+    )
+  ) |>
+  arrange(desc(vif))
+
+# Display table
+vif_table |>
+  kable(
+    col.names = c("Variable", "VIF", "Multicollinearity Level"),
+    caption = "Variance Inflation Factors for Alternative Density Measures",
+    align = c("l", "r", "l")
+  )
+
+```
+
+
+VIF results indicate moderate multicollinearity between population density and housing density, so I retain **population density** as the primary measure of residential density, as it more directly reflects crowding and interpersonal exposure relevant to the COVID pandemic.
+
+
+---
+
+### Step 1: Descriptive Analysis
+
+I begin with a descriptive analysis using histograms and density terciles to assess whether high-density community districts appear to have experienced weaker post-COVID price growth. This step establishes whether a density–price pattern exists but does not control for confounding factors.
+
+Visualizing the distribution of property value changes across community districts demonstrate how property values varied substantially across NYC’s 59 community districts. We note the median district experienced a moderate `r round(as.numeric(price_summary[3]), 1)`% price growth, but the range spans large declines, `r round(as.numeric(price_summary[1]), 1)`%, in some districts to substantial appreciation, `r round(as.numeric(price_summary[6]), 1)`%,  in others. 
 
 ```{r}
 #| echo: false
@@ -554,679 +1064,1295 @@ Property value changes varied substantially across 59 community districts. The m
 ggplot(cd_analysis_df, aes(x = price_change_pct)) +
   geom_histogram(aes(y = after_stat(density)), bins = 15, fill = "#3288bd", alpha = 0.7, color = "white") +
   geom_density(color = "#d53e4f", linewidth = 1.2) +
-  geom_vline(xintercept = median(cd_analysis_df$price_change_pct), linetype = "dashed", color = "black", linewidth = 1) +
-  annotate("text", x = median(cd_analysis_df$price_change_pct) + 2,
+  geom_vline(xintercept = median(cd_analysis_df$price_change_pct), 
+             linetype = "dashed", color = "black", linewidth = 1) +
+  annotate("text", x = median(cd_analysis_df$price_change_pct) + 2, 
            y = max(density(cd_analysis_df$price_change_pct)$y) * 0.9,
-           label = paste0("Median: ", round(median(cd_analysis_df$price_change_pct), 1), "%"), hjust = 0) +
-  labs(title = "Distribution of Property Value Changes (2017-2019 → 2021-2023)",
-       x = "Price Change (%)", y = "Density") +
+           label = paste0("Median: ", round(median(cd_analysis_df$price_change_pct), 1), "%"),
+           hjust = 0) +
+  labs(
+    title = "Distribution of Property Value Changes (2017-2019 → 2021-2023)",
+    x = "Price Change (%)",
+    y = "Density"
+  ) +
   scale_x_continuous(labels = function(x) paste0(x, "%")) +
   theme_minimal(base_size = 12) +
-  theme(plot.title = element_text(face = "bold", size = 14), panel.grid.minor = element_blank())
+  theme(
+    plot.title = element_text(face = "bold", size = 14),
+    panel.grid.minor = element_blank()
+  )
 ```
+
+Baseline population density across CDs ranges from `r comma(round(as.numeric(summary(cd_analysis_df$pop_density_2019)[1]), 0))` to `r comma(round(as.numeric(summary(cd_analysis_df$pop_density_2019)[6]), 0))` people per square mile—from suburban Staten Island to the ultra-dense parts of Manhattan.
 
 ```{r}
 #| echo: false
-tibble(
-  Statistic = c("Minimum", "1st Quartile", "Median", "Mean", "3rd Quartile", "Maximum"),
-  Value = paste0(round(as.numeric(price_summary), 2), "%")
-) |> kable(col.names = c("Statistic", "Price Change"),
-          caption = "Summary Statistics: Property Value Changes", align = c("l", "r"))
-```
-
-Housing density ranges from `r comma(round(as.numeric(summary(cd_analysis_df$housing_density_2019)[1]), 0))` to `r comma(round(as.numeric(summary(cd_analysis_df$housing_density_2019)[6]), 0))` units per square mile.
-
-```{r}
-#| echo: false
-#| fig-cap: "Distribution of Housing Density Across Community Districts"
+#| fig-cap: "Distribution of Population Density Across Community Districts"
 #| fig-width: 10
 #| fig-height: 4
 
-ggplot(cd_analysis_df, aes(x = housing_density_2019)) +
+ggplot(cd_analysis_df, aes(x = pop_density_2019)) +
   geom_histogram(aes(y = after_stat(density)), bins = 15, fill = "#66c2a5", alpha = 0.7, color = "white") +
   geom_density(color = "#d53e4f", linewidth = 1.2) +
-  geom_vline(xintercept = median(cd_analysis_df$housing_density_2019), linetype = "dashed", color = "black", linewidth = 1) +
-  annotate("text", x = median(cd_analysis_df$housing_density_2019) + 5000,
-           y = max(density(cd_analysis_df$housing_density_2019)$y) * 0.9,
-           label = paste0("Median: ", comma(round(median(cd_analysis_df$housing_density_2019), 0)), " units/sq mi"),
+  geom_vline(xintercept = median(cd_analysis_df$pop_density_2019), 
+             linetype = "dashed", color = "black", linewidth = 1) +
+  annotate("text", x = median(cd_analysis_df$pop_density_2019) + 5000, 
+           y = max(density(cd_analysis_df$pop_density_2019)$y) * 0.9,
+           label = paste0("Median: ", comma(round(median(cd_analysis_df$pop_density_2019), 0)), " units/sq mi"),
            hjust = 0, size = 3.5) +
-  labs(title = "Distribution of Housing Density (2019)", x = "Housing Density (units per sq mi)", y = "Density") +
-  scale_x_continuous(labels = comma) + theme_minimal(base_size = 12) +
-  theme(plot.title = element_text(face = "bold", size = 14), panel.grid.minor = element_blank())
+  labs(
+    title = "Distribution of Population Density (2019)",
+    x = "Population Density (people per sq mi)",
+    y = "Population Density"
+  ) +
+  scale_x_continuous(labels = comma) +
+  theme_minimal(base_size = 12) +
+  theme(
+    plot.title = element_text(face = "bold", size = 14),
+    panel.grid.minor = element_blank()
+  )
 ```
 
-```{r}
-#| echo: false
-density_summary <- summary(cd_analysis_df$housing_density_2019)
-tibble(
-  Statistic = c("Minimum", "1st Quartile", "Median", "Mean", "3rd Quartile", "Maximum"),
-  Value = comma(round(as.numeric(density_summary), 0))
-) |> kable(col.names = c("Statistic", "Housing Density (units/sq mi)"),
-          caption = "Summary Statistics: Housing Density Across Community Districts (2019)", align = c("l", "r"))
-```
 
-Density terciles reveal a gradient: low-density areas averaged `r round(cd_analysis_df |> filter(density_tercile == "Low") |> pull(price_change_pct) |> mean(), 1)`% growth versus `r round(cd_analysis_df |> filter(density_tercile == "High") |> pull(price_change_pct) |> mean(), 1)`% in high-density areas.
+Partitioning CDs into density terciles reveals a clear gradient: low-density areas averaged `r round(cd_analysis_df |> filter(density_tercile == "Low") |> pull(price_change_pct) |> mean(), 1)`% price growth compared to just `r round(cd_analysis_df |> filter(density_tercile == "High") |> pull(price_change_pct) |> mean(), 1)`% in high-density areas.
+
 
 ```{r}
 #| echo: false
 tercile_table <- cd_analysis_df |>
   group_by(density_tercile) |>
-  summarise(n = n(), mean_density = mean(housing_density_2019, na.rm = TRUE),
-           median_density = median(housing_density_2019, na.rm = TRUE),
-           mean_price_change = mean(price_change_pct, na.rm = TRUE),
-           median_price_change = median(price_change_pct, na.rm = TRUE),
-           sd_price_change = sd(price_change_pct, na.rm = TRUE), .groups = "drop")
+  summarise(
+    n = n(),
+    median_pop_density = median(pop_density_2019, na.rm = TRUE),
+    median_housing_density = median(housing_density_2019, na.rm = TRUE),
+    median_price_change = median(price_change_pct, na.rm = TRUE),
+    mean_price_change = mean(price_change_pct, na.rm = TRUE),
+    sd_price_change = sd(price_change_pct, na.rm = TRUE),
+    .groups = "drop"
+  )
 
 tercile_table |>
-  mutate(mean_density = comma(round(mean_density, 0)), median_density = comma(round(median_density, 0)),
-         mean_price_change = paste0(round(mean_price_change, 1), "%"),
-         median_price_change = paste0(round(median_price_change, 1), "%"),
-         sd_price_change = paste0(round(sd_price_change, 1), "%")) |>
-  kable(col.names = c("Density Tercile", "N", "Mean Density", "Median Density",
-                     "Mean Price Δ", "Median Price Δ", "SD Price Δ"),
-       caption = "Price Change by Density Tercile", align = c("l", "r", "r", "r", "r", "r", "r"))
+  mutate(
+    median_pop_density = comma(round(median_pop_density, 0)),
+    median_housing_density = comma(round(median_housing_density, 0)),
+    median_price_change = paste0(round(median_price_change, 1), "%"),
+    mean_price_change = paste0(round(mean_price_change, 1), "%"),
+    sd_price_change = paste0(round(sd_price_change, 1), "%")
+  ) |>
+  kable(
+    col.names = c("Density Tercile", "N", "Median Pop. Density", "Median Housing Density", "Median Price (Post-Pre COVID)% Change",
+                  "Mean Price (Post-Pre COVID)% Change", "SD Price (Post-Pre COVID)% Change"),
+    caption = "Price Change by Density Tercile",
+    align = c("l", "r", "r", "r", "r", "r", "r")
+  )
 ```
 
-### The Density Penalty Hypothesis
+Our exploratory analysis suggests that CDs with higher densities appear to have weaker post-COVID price growth than lower-density districts. 
 
-High-density CDs experienced lower price growth. However, this could be spurious since density correlates with income, borough, and building age. To test rigorously, I estimate three models:
+---
 
-**Model 1**: Simple bivariate regression  
-**Model 2**: Non-parametric comparison across terciles  
-**Model 3**: Interaction model examining income moderation
+## Regressions 
 
-```{r regression}
-#| label: regression-models
-#| code-summary: "Estimate Density Penalty Models"
-
-model1 <- lm(price_change_pct ~ pop_density_2019, data = cd_analysis_df)
-tercile_comparison <- cd_analysis_df |> group_by(density_tercile) |>
-  summarise(n = n(), mean_price_change = mean(price_change_pct, na.rm = TRUE),
-           sd_price_change = sd(price_change_pct, na.rm = TRUE), .groups = "drop")
-model3 <- lm(price_change_pct ~ pop_density_2019 * median_income_2019, data = cd_analysis_df)
-```
-
-#### Model 1: Price Change ~ Density
+### Model 1: Density Regression
 
 ```{r}
 #| echo: false
-tidy(model1, conf.int = TRUE) |>
-  mutate(term = if_else(term == "(Intercept)", "Intercept", "Population Density"),
-         across(where(is.numeric), ~round(., 6))) |>
-  kable(col.names = c("Term", "Estimate", "Std Error", "t-statistic", "p-value", "CI Lower", "CI Upper"),
-       caption = "Model 1: Linear Regression Results", align = c("l", "r", "r", "r", "r", "r", "r"))
+#| 
+tidy_regression <- function(model, caption) {
+  tidy(model, conf.int = TRUE) |>
+    mutate(
+      term = case_when(
+        term == "(Intercept)" ~ "Intercept",
+        term == "pop_density_2019" ~ "Population Density (2019)",
+        term == "median_income_2019" ~ "Median Income (2019)",
+        term == "total_housing_2019" ~ "Total Housing Units (2019)",
+        term == "density_tercileMedium" ~ "Density: Medium (ref = Low)",
+        term == "density_tercileHigh" ~ "Density: High (ref = Low)",
+        grepl("^borough", term) ~ paste0("Borough FE: ", sub("borough", "", term)),
+        TRUE ~ term
+      ),
+      across(where(is.numeric), ~ round(., 4)),
+      p.value = if_else(
+        p.value < 0.001, "< 0.001", as.character(round(p.value, 4))
+      )
+    ) |>
+    select(term, estimate, std.error, statistic, p.value, conf.low, conf.high) |>
+    kable(
+      col.names = c(
+        "Variable", "Coefficient", "Std. Error",
+        "t-stat", "p-value", "CI Lower", "CI Upper"
+      ),
+      caption = caption,
+      align = c("l", "r", "r", "r", "r", "r", "r")
+    )
+}
 ```
+
+To quantify the raw association between density and post-COVID price change, I estimate a bivariate regression:
+
+$$ \Delta P_i = \alpha + \beta \cdot \text{Density}_{i,2019} + \varepsilon_i $$
+
+This model captures the **unconditional correlation** between density and price change and provides a baseline benchmark against which more complex models are evaluated.
+
 
 ```{r}
-#| echo: false
-glance(model1) |> select(r.squared, adj.r.squared, sigma, statistic, p.value) |>
-  mutate(across(c(r.squared, adj.r.squared, sigma, statistic), ~round(., 4)),
-         p.value = if_else(p.value < 0.001, "< 0.001", as.character(round(p.value, 4)))) |>
-  kable(col.names = c("R²", "Adj R²", "Residual SE", "F-statistic", "p-value"),
-       caption = "Model 1: Fit Statistics", align = c("r", "r", "r", "r", "r"))
+#| label: simple-regression-density
+#| code-summary: "Regression of Price Change on Baseline Density"
+
+# Simple regression: unconditional correlation** between density and price change
+price_density_model <- lm(price_change_pct ~ pop_density_2019, data = cd_analysis_df)
+
+# Display regression results
+tidy_regression(
+  price_density_model,
+  caption = "Model 1: Bivariate Relationship Between Density and Price Change"
+)
+
+m1_density_coef <- coef(price_density_model)["pop_density_2019"]
+m1_density_pval <- summary(price_density_model)$coefficients["pop_density_2019", "Pr(>|t|)"]
+m1_r2 <- summary(price_density_model)$r.squared
 ```
 
-The density coefficient indicates a `r round(coef(model1)[2] * 10000, 2)` percentage point decrease per 10,000 units/sq mi increase (p `r if_else(summary(model1)$coefficients[2,4] < 0.001, "< 0.001", paste0("= ", round(summary(model1)$coefficients[2,4], 3)))`).
 
-```{r scatter-density}
-#| label: scatter-density-price
-#| code-summary: "Density vs Price Change Scatterplot"
-#| fig-cap: "Property Value Change vs Residential Density"
-#| fig-width: 12
-#| fig-height: 8
-#| echo: false
+In the bivariate regression, population density has a coefficient of **`r format(m1_density_coef, scientific = FALSE, digits = 6)`** (p = `r format.pval(m1_density_pval, digits = 3)`), indicating that a 1,000-person-per-square-mile increase in population density is associated with an approximately `r abs(round(m1_density_coef * 1000, 3))` percentage point `r ifelse(m1_density_coef < 0, "decrease", "increase")` in post-COVID property price growth. This relationship is `r ifelse(m1_density_pval < 0.05, "statistically significant", "not statistically significant")` at the 5% level. The model explains `r round(m1_r2 * 100, 1)`% of the variation in price changes across community districts.
 
-r_sq <- summary(model1)$r.squared
-p_val <- summary(model1)$coefficients[2, 4]
-citywide_mean <- mean(cd_analysis_df$price_change_pct, na.rm = TRUE)
-
-scatter1 <- ggplot(cd_analysis_df, aes(x = housing_density_2019, y = price_change_pct)) +
-  geom_point(aes(color = density_tercile, size = total_sales_pre + total_sales_post), alpha = 0.7) +
-  geom_smooth(method = "lm", se = TRUE, color = "black", linetype = "dashed", linewidth = 1, alpha = 0.3) +
-  geom_hline(yintercept = citywide_mean, linetype = "dotted", color = "red", linewidth = 1) +
-  geom_text(aes(label = cd_id), size = 2.5, nudge_y = 1.5, alpha = 0.8, check_overlap = TRUE) +
-  scale_color_manual(values = c("Low" = "#2166ac", "Medium" = "#fee08b", "High" = "#d53e4f"),
-                    name = "Density Tercile") +
-  scale_size_continuous(name = "Total Sales", range = c(2, 10), labels = comma) +
-  labs(title = "Did High Residential Density Become a Penalty Post-COVID?",
-       subtitle = paste0("NYC Community Districts (N=", nrow(cd_analysis_df), ") | R² = ", round(r_sq, 3),
-                        ", p ", if_else(p_val < 0.001, "< 0.001", paste0("= ", round(p_val, 3)))),
-       x = "Housing Density (units per sq mi, 2019)", y = "Property Value Change (%)\n2017-2019 → 2021-2023",
-       caption = "Red line = Citywide average | Point size = Total sales volume | Dashed line = Linear regression") +
-  scale_x_continuous(labels = comma) + theme_minimal(base_size = 12) +
-  theme(plot.title = element_text(face = "bold", size = 14), plot.subtitle = element_text(size = 10),
-       legend.position = "right", panel.grid.minor = element_blank())
-
-scatter1
-ggsave("output/density_price_scatter.png", scatter1, width = 12, height = 8, dpi = 300)
-```
-
-The negative slope is visually striking—dense CDs cluster in the bottom-right (high density, low growth) while sparse CDs dominate the top-left.
-
-#### Model 2: Price Growth by Density Tercile
 
 ```{r}
-#| echo: false
-tercile_comparison |>
-  mutate(mean_price_change = paste0(round(mean_price_change, 2), "%"),
-         sd_price_change = paste0(round(sd_price_change, 2), "%")) |>
-  kable(col.names = c("Density Tercile", "N", "Mean Price Change", "SD"),
-       caption = "Model 2: Tercile Comparison", align = c("l", "r", "r", "r"))
-```
+#| label: Price-Performance-Map
+#| code-summary: "Price Perfomance Map"
+# ==============================================================================
+# VISUALIZATION: LEAFLET MAP – RELATIVE PRICE PERFORMANCE
+# ==============================================================================
+library(leaflet)
+library(scales)
 
-The monotonic decline supports the linear specification, though the gradient appears steeper at the high end.
-
-```{r boxplot}
-#| label: boxplot-terciles
-#| code-summary: "Boxplot by Density Tercile"
-#| fig-cap: "Property Value Change by Density Tercile"
-#| fig-width: 10
-#| fig-height: 7
-#| echo: false
-
-anova_test <- aov(price_change_pct ~ density_tercile, data = cd_analysis_df)
-anova_p <- summary(anova_test)[[1]][["Pr(>F)"]][1]
-
-boxplot <- ggplot(cd_analysis_df, aes(x = density_tercile, y = price_change_pct, fill = density_tercile)) +
-  geom_boxplot(alpha = 0.7, outlier.shape = NA) +
-  geom_jitter(width = 0.2, alpha = 0.5, size = 2) +
-  geom_hline(yintercept = citywide_mean, linetype = "dashed", color = "red", linewidth = 1) +
-  stat_summary(fun = mean, geom = "point", shape = 23, size = 4, fill = "white", color = "black") +
-  scale_fill_manual(values = c("Low" = "#2166ac", "Medium" = "#fee08b", "High" = "#d53e4f")) +
-  labs(title = "Property Value Change by Density Level",
-       subtitle = paste0("ANOVA p-value: ", if_else(anova_p < 0.001, "< 0.001", as.character(round(anova_p, 3))),
-                        " | Diamond = Mean, Red line = Citywide average"),
-       x = "Density Tercile", y = "Property Value Change (%)",
-       caption = "Each point represents a Community District") +
-  theme_minimal(base_size = 12) +
-  theme(plot.title = element_text(face = "bold", size = 14), legend.position = "none",
-       panel.grid.major.x = element_blank())
-
-boxplot
-ggsave("output/density_boxplot.png", boxplot, width = 10, height = 7, dpi = 300)
-```
-
-Tighter distributions in low-density areas versus wider spreads in high-density CDs suggest other factors create heterogeneity.
-
-#### Model 3: Density × Income Interaction
-
-```{r}
-#| echo: false
-tidy(model3, conf.int = TRUE) |>
-  mutate(term = case_when(term == "(Intercept)" ~ "Intercept", term == "pop_density_2019" ~ "Population Density",
-                         term == "median_income_2019" ~ "Median Income",
-                         term == "pop_density_2019:median_income_2019" ~ "Density × Income", TRUE ~ term),
-         across(where(is.numeric), ~round(., 8))) |>
-  kable(col.names = c("Term", "Estimate", "Std Error", "t-statistic", "p-value", "CI Lower", "CI Upper"),
-       caption = "Model 3: Interaction Model Results", align = c("l", "r", "r", "r", "r", "r", "r"))
-```
-
-```{r}
-#| echo: false
-glance(model3) |> select(r.squared, adj.r.squared, sigma, statistic, p.value) |>
-  mutate(across(c(r.squared, adj.r.squared, sigma, statistic), ~round(., 4)),
-         p.value = if_else(p.value < 0.001, "< 0.001", as.character(round(p.value, 4)))) |>
-  kable(col.names = c("R²", "Adj R²", "Residual SE", "F-statistic", "p-value"),
-       caption = "Model 3: Fit Statistics", align = c("r", "r", "r", "r", "r"))
-```
-
-The positive interaction term suggests higher-income neighborhoods experience a smaller density penalty, though the effect is modest.
-
-### Key Findings
-
-```{r findings-summary}
-#| label: findings-summary
-#| code-summary: "Extract Key Statistics"
-#| echo: false
-
-density_coef <- coef(model1)[2]
-density_pval <- summary(model1)$coefficients[2, 4]
-r_squared <- summary(model1)$r.squared
-high_low_diff <- tercile_comparison$mean_price_change[tercile_comparison$density_tercile == "High"] -
-  tercile_comparison$mean_price_change[tercile_comparison$density_tercile == "Low"]
-interaction_coef <- coef(model3)[4]
-interaction_pval <- summary(model3)$coefficients[4, 4]
-```
-
-The three models converge: **residential density imposed a significant penalty**. Each 10,000 unit/sq mi increase associates with **`r round(density_coef * 10000, 2)` percentage point decrease** (p `r if_else(density_pval < 0.001, "< 0.001", paste0("= ", round(density_pval, 3)))`). High-density CDs experienced **`r round(abs(high_low_diff), 1)` percentage points less growth** than low-density CDs. The model explains `r round(r_squared * 100, 1)`% of variation. Income provides partial insulation (interaction p `r if_else(interaction_pval < 0.001, "< 0.001", paste0("= ", round(interaction_pval, 3)))`), but density remains dominant.
-
-```{r map-price-change}
-#| label: map-price-change
-#| code-summary: "Interactive Map of Price Changes"
-#| fig-cap: "Property Value Change by Community District (2017-2019 → 2021-2023)"
-#| echo: false
-
+# --- Join geometry to analysis data ---
 map_data <- nyc_cd |>
-  left_join(cd_analysis_df |> select(cd_id, price_change_pct, housing_density_2019, density_tercile,
-                                    avg_median_price_pre, avg_median_price_post), by = "cd_id") |>
-  filter(!is.na(price_change_pct)) |> st_transform(4326)
+  left_join(cd_analysis_df, by = "cd_id") |>
+  filter(!is.na(price_change_pct))
 
-citywide_mean <- mean(cd_analysis_df$price_change_pct, na.rm = TRUE)
-price_pal <- colorNumeric(palette = "RdYlGn", domain = map_data$price_change_pct, reverse = FALSE)
+# --- Transform to WGS84 for Leaflet (CRITICAL!) ---
+map_data <- map_data |> st_transform(4326)
 
+# --- Compute citywide average price change ---
+citywide_mean <- mean(map_data$price_change_pct, na.rm = TRUE)
+
+# --- Compute deviation and category ---
 map_data <- map_data |>
-  mutate(popup_text = paste0("<strong>", cd_id, "</strong><br>",
-                            "<strong>Price Change: ", round(price_change_pct, 1), "%</strong><br>",
-                            "Housing Density: ", comma(round(housing_density_2019, 0)), " units/sq mi<br>",
-                            "Density Tercile: ", density_tercile, "<br>",
-                            "Pre-COVID Price: $", comma(round(avg_median_price_pre, 0)), "<br>",
-                            "Post-COVID Price: $", comma(round(avg_median_price_post, 0))))
+  mutate(
+    deviation_from_avg = price_change_pct - citywide_mean,
+    performance_category = case_when(
+      deviation_from_avg <= -10 ~ "Strong Underperformance (< -10%)",
+      deviation_from_avg > -10 & deviation_from_avg <= -5 ~ "Moderate Underperformance (-5% to -10%)",
+      deviation_from_avg > -5 & deviation_from_avg < 5 ~ "Near Citywide Average (±5%)",
+      deviation_from_avg >= 5 & deviation_from_avg < 10 ~ "Moderate Outperformance (+5% to +10%)",
+      deviation_from_avg >= 10 ~ "Strong Outperformance (> +10%)"
+    ),
+    performance_category = factor(
+      performance_category,
+      levels = c(
+        "Strong Underperformance (< -10%)",
+        "Moderate Underperformance (-5% to -10%)",
+        "Near Citywide Average (±5%)",
+        "Moderate Outperformance (+5% to +10%)",
+        "Strong Outperformance (> +10%)"
+      )
+    )
+  )
 
-map1 <- leaflet(map_data) |>
+
+# --- Color palette using named vector (like the working code) ---
+performance_colors <- c(
+  "Strong Underperformance (< -10%)" = "#d7191c",
+  "Moderate Underperformance (-5% to -10%)" = "#fdae61",
+  "Near Citywide Average (±5%)" = "#ffffbf",
+  "Moderate Outperformance (+5% to +10%)" = "#a6d96a",
+  "Strong Outperformance (> +10%)" = "#1a9641"
+)
+
+performance_pal <- colorFactor(
+  palette = performance_colors,
+  domain = map_data$performance_category
+)
+
+# --- Create popup text ---
+map_data <- map_data |>
+  mutate(
+    popup_text = paste0(
+      "<strong>", cd_id, " (", borough, ")</strong><br>",
+      "<strong>Price Change: ", round(price_change_pct, 1), "%</strong><br>",
+      "Deviation from NYC Avg: ", round(deviation_from_avg, 1), "%<br>",
+      "NYC Average: ", round(citywide_mean, 1), "%<br>",
+      "Population Density (2019): ",
+      comma(round(pop_density_2019, 0)), " ppl/sq mi<br>",
+      "Density Tercile: ", density_tercile
+    )
+  )
+
+# --- Create the leaflet map ---
+map <- leaflet(map_data) |>
   addProviderTiles(providers$CartoDB.Positron) |>
-  addPolygons(fillColor = ~price_pal(price_change_pct), fillOpacity = 0.7, color = "white", weight = 2, opacity = 1,
-             highlight = highlightOptions(weight = 3, color = "#666", fillOpacity = 0.9, bringToFront = TRUE),
-             popup = ~popup_text, label = ~paste0(cd_id, ": ", round(price_change_pct, 1), "%")) |>
-  addLegend(position = "bottomright", pal = price_pal, values = ~price_change_pct,
-           title = "Price Change (%)<br>2017-19 → 2021-23", opacity = 0.7,
-           labFormat = labelFormat(suffix = "%")) |>
+  addPolygons(
+    fillColor = ~performance_pal(performance_category),
+    fillOpacity = 0.7,
+    color = "white",
+    weight = 2,
+    opacity = 1,
+    highlight = highlightOptions(
+      weight = 3,
+      color = "#666",
+      fillOpacity = 0.9,
+      bringToFront = TRUE
+    ),
+    popup = ~popup_text,
+    label = ~paste0(cd_id, ": ", round(deviation_from_avg, 1), "%"),
+    labelOptions = labelOptions(
+      style = list("font-weight" = "normal", padding = "3px 8px"),
+      textsize = "12px",
+      direction = "auto"
+    )
+  ) |>
+  addLegend(
+    position = "bottomright",
+    pal = performance_pal,
+    values = ~performance_category,
+    title = "Post-COVID Price Performance<br>(vs NYC Average)",
+    opacity = 0.7
+  ) |>
+  addControl(
+    html = paste0(
+      "<div style='background:white; padding:10px; border-radius:5px;'>
+        <strong>Post-COVID Price Performance</strong><br>
+        NYC Average: ", round(citywide_mean, 1), "%<br>
+        <em>Descriptive comparison only</em>
+      </div>"
+    ),
+    position = "topright"
+  ) |>
   setView(lng = -73.95, lat = 40.7, zoom = 10)
 
-map1
-htmlwidgets::saveWidget(map1, "output/price_change_map.html", selfcontained = TRUE)
+# Display the map
+map
+
 ```
 
-Green areas (strong growth) cluster in outer boroughs; red areas (weak growth) concentrate in dense Manhattan cores and high-density Brooklyn/Queens corridors.
 
-## Discussion
+This map illustrates post-COVID housing price changes relative to the citywide average across community districts. While higher-density districts appear more likely to underperform descriptively, this pattern reflects raw differences rather than causal effects and subsequent regression analysis shows this pattern largely reflects broader socioeconomic and geographic structure rather than an independent density effect.
 
-### Interpretation of Results
+### Model 2: Controlled Individual Model
 
-The analysis provides strong evidence for a **density penalty**. Each 10,000 unit/sq mi increase associates with **2.3 percentage point decrease** in growth (p < 0.001). High-density CDs experienced **7.5 percentage points less growth**, representing **$37,500-$52,500 in foregone appreciation** for median properties. Income partially moderates this, suggesting high-income dense areas retained more value.
+To test whether density predicts price changes independently of pre-COVID confounders, I form a cross-sectional regression:
 
-### Causal Interpretation and Limitations
+$$
+\Delta P_i = \alpha + \beta \cdot \text{Density}_{i,2019}
++ \gamma \cdot \text{Income}_{i,2019}
++ \delta \cdot \text{Housing Stock}_{i,2019}
++ \varepsilon_i
+$$
 
-The **difference-in-differences** design strengthens causal interpretation by comparing the same CDs over time and across density levels simultaneously. COVID-19's sharp March 2020 shock provides clear temporal discontinuity.
+where income and housing stock are measured prior to COVID to avoid post-treatment bias. This model evaluates whether the supposed 'density penalty' persists once baseline socioeconomic conditions are held constant.
 
-**Limitations**: (1) Omitted time-varying confounders (addressed by teammates), (2) selection effects, and (3) using 2019 ACS density misses COVID-induced changes.
+```{r}
+#| label: controlled-regression-density
+#| code-summary: "Regression of Price Change on Baseline Density and Baseline Controls"
 
-```{r scatter-before-after}
-#| label: scatter-before-after
-#| code-summary: "Pre vs Post Comparison"
-#| fig-cap: "Density-Price Relationship: Pre-COVID vs Post-COVID"
-#| fig-width: 12
-#| fig-height: 6
-#| echo: false
+# Cross-sectional regression:
+# Result: pre–post percentage change in median prices
+# Predictor: baseline population density (2019)
+# Controls: pre-COVID income and housing stock
+price_density_model_controls <- lm(
+  price_change_pct ~ 
+    pop_density_2019 + 
+    median_income_2019 + 
+    total_housing_2019,
+  data = cd_analysis_df
+)
 
-price_comparison <- cd_analysis_df |>
-  select(cd_id, housing_density_2019, avg_median_price_pre, avg_median_price_post, density_tercile) |>
-  pivot_longer(cols = c(avg_median_price_pre, avg_median_price_post), names_to = "period", values_to = "median_price") |>
-  mutate(period = if_else(period == "avg_median_price_pre", "Pre-COVID\n(2017-2019)", "Post-COVID\n(2021-2023)"))
+# Display regression results
+tidy_regression(
+  price_density_model_controls,
+  caption = "Model 2: Density and Baseline Controls"
+)
 
-scatter3 <- ggplot(price_comparison, aes(x = housing_density_2019, y = median_price)) +
-  geom_point(aes(color = density_tercile), size = 3, alpha = 0.6) +
-  geom_smooth(method = "lm", se = TRUE, color = "black", linewidth = 1) +
-  facet_wrap(~period, ncol = 2) +
-  scale_color_manual(values = c("Low" = "#2166ac", "Medium" = "#fee08b", "High" = "#d53e4f"),
-                    name = "Density Tercile") +
-  scale_y_continuous(labels = dollar_format()) + scale_x_continuous(labels = comma) +
-  labs(title = "Relationship Between Density and Property Values: Before vs After COVID",
-       subtitle = "Did the density-value relationship change?",
-       x = "Housing Density (units per sq mi, 2019)", y = "Median Property Value ($)",
-       caption = "Each point represents a Community District | Lines = linear regression") +
-  theme_minimal(base_size = 12) +
-  theme(plot.title = element_text(face = "bold", size = 14), strip.text = element_text(face = "bold", size = 12),
-       legend.position = "bottom", panel.grid.minor = element_blank())
+m2_density_coef <- coef(price_density_model_controls)["pop_density_2019"]
+m2_density_pval <- summary(price_density_model_controls)$coefficients["pop_density_2019", "Pr(>|t|)"]
+m2_income_coef <- coef(price_density_model_controls)["median_income_2019"]
+m2_income_pval <- summary(price_density_model_controls)$coefficients["median_income_2019", "Pr(>|t|)"]
+m2_r2 <- summary(price_density_model_controls)$r.squared
 
-scatter3
-ggsave("output/density_before_after.png", scatter3, width = 12, height = 6, dpi = 300)
 ```
 
-While both periods show positive density-price correlations (dense areas remain expensive in levels), the post-COVID slope is flatter, indicating the density premium weakened.
+In this controlled regression, we see baseline population density has a negative coefficient, but the effect is not statistically significant once pre-COVID income and housing stock are included (p = 0.21). In contrast, median income is strongly negatively associated with price growth, indicating that higher-income districts experienced systematically weaker price growth over this period.
 
-### Integration with Team Analysis
+After controlling for median income and housing stock, the density coefficient becomes **`r format(m2_density_coef, scientific = FALSE, digits = 6)`** (p = `r format.pval(m2_density_pval, digits = 3)`), which is `r ifelse(m2_density_pval < 0.05, "statistically significant", "not statistically significant")`. The inclusion of controls `r ifelse(abs(m2_density_coef) < abs(m1_density_coef), "attenuates", "amplifies")` the density effect by `r round(abs((m2_density_coef - m1_density_coef) / m1_density_coef * 100), 1)`%, suggesting that much of the raw correlation between density and price changes operates through `r ifelse(m2_income_pval < 0.05, "income differences", "other mechanisms")`. Model fit improves to R² = `r round(m2_r2, 3)`.
 
-```{r team-data-prep}
+
+### Model 3: Density Terciles
+
+Furthermore, to examine whether the density penalty is concentrated at extreme levels or operates across the full density distribution, I estimate a complementary model using density terciles from baseline population density, comparison across low-, medium-, and high-density districts.
+
+$$
+\Delta P_i = \alpha + \beta_1 \cdot \text{Medium}_{i} + \beta_2 \cdot \text{High}_{i} + \gamma \cdot \text{Income}_{i} + \delta \cdot \text{Housing}_{i} + \varepsilon_i
+$$
+
+where low-density districts serve as the reference category.
+
+```{r}
+#| label: regression-density-terciles
+#| code-summary: "Regression Using Density Terciles"
+
+# Tercile-based regression:
+# Low-density districts serve as the reference group
+price_density_tercile_model <- lm(
+  price_change_pct ~ 
+    density_tercile + 
+    median_income_2019 + 
+    total_housing_2019,
+  data = cd_analysis_df
+)
+
+tidy_regression(
+  price_density_tercile_model,
+  caption = "Model 3: Density Terciles with Baseline Controls"
+)
+
+# Extract statistics
+m3_medium_coef <- coef(price_density_tercile_model)["density_tercileMedium"]
+m3_medium_pval <- summary(price_density_tercile_model)$coefficients["density_tercileMedium", "Pr(>|t|)"]
+
+m3_high_coef <- coef(price_density_tercile_model)["density_tercileHigh"]
+m3_high_pval <- summary(price_density_tercile_model)$coefficients["density_tercileHigh", "Pr(>|t|)"]
+
+m3_r2 <- summary(price_density_tercile_model)$r.squared
+```
+
+Using density terciles with low-density districts as the reference group, the regression estimates the following differences in post-COVID property price growth:
+
+In the tercile-based regression, medium-density districts have a coefficient of `r round(m3_medium_coef, 3)` (p = `r format.pval(m3_medium_pval, digits = 3)`), indicating that medium-density districts experienced approximately `r abs(round(m3_medium_coef, 1))` percentage points `r ifelse(m3_medium_coef < 0, "lower", "higher")` price growth relative to low-density districts. This difference is `r ifelse(m3_medium_pval < 0.05, "statistically significant", "not statistically significant")` at the 5% level.
+
+High-density districts exhibit a coefficient of `r round(m3_high_coef, 3)` (p = `r format.pval(m3_high_pval, digits = 3)`), implying that high-density districts experienced approximately `r abs(round(m3_high_coef, 1))` percentage points `r ifelse(m3_high_coef < 0, "lower", "higher")` price growth compared to low-density districts. This effect is `r ifelse(m3_high_pval < 0.05, "statistically significant", "not statistically significant")` at the 5% level.
+
+Taken together, the tercile coefficients `r ifelse(m3_high_coef < m3_medium_coef, "display a monotonic decline", "do not display a clear monotonic pattern")` from low- to high-density districts, suggesting that `r ifelse(m3_high_pval < 0.05 | m3_medium_pval < 0.05, "the density penalty may intensify at higher density levels", "density terciles do not independently predict price changes once sampling variability is accounted for")`. Overall model fit is modest, with an R² of `r round(m3_r2, 3)`, indicating that density category alone explains a limited share of cross-district variation in price changes.
+
+
+```{r}
+#| label: Density-Tercile-Visualization
+#| code-summary: "Density Tercile Choropleth"
+# ==============================================================================
+# VISUALIZATION: DENSITY TERCILE CHOROPLETH
+# ==============================================================================
+# --- Join geometry to analysis data ---
+map_data <- nyc_cd |>
+  left_join(cd_analysis_df, by = "cd_id") |>
+  filter(!is.na(density_tercile))
+
+# --- Transform to WGS84 for Leaflet (CRITICAL!) ---
+map_data <- map_data |> st_transform(4326)
+
+# --- Ensure density_tercile is a factor with fixed order ---
+map_data <- map_data |>
+  mutate(
+    density_tercile = factor(
+      density_tercile,
+      levels = c("Low", "Medium", "High")
+    )
+  )
+
+# --- Color palette using named vector (like the working code) ---
+density_colors <- c(
+  "Low" = "#4575b4",
+  "Medium" = "#fee090",
+  "High" = "#d73027"
+)
+
+density_pal <- colorFactor(
+  palette = density_colors,
+  domain = map_data$density_tercile
+)
+
+# --- Create popup text ---
+map_data <- map_data |>
+  mutate(
+    popup_text = paste0(
+      "<strong>", cd_id, "</strong><br>",
+      "Density Tercile: ", density_tercile, "<br>",
+      "Population Density (2019): ",
+      comma(round(pop_density_2019, 0)), " people/sq mi"
+    )
+  )
+
+# --- Create leaflet map ---
+density_map <- leaflet(map_data) |>
+  addProviderTiles(providers$CartoDB.Positron) |>
+  addPolygons(
+    fillColor = ~density_pal(density_tercile),
+    fillOpacity = 0.75,
+    color = "white",
+    weight = 1.5,
+    opacity = 1,
+    highlight = highlightOptions(
+      weight = 3,
+      color = "#666",
+      fillOpacity = 0.9,
+      bringToFront = TRUE
+    ),
+    popup = ~popup_text,
+    label = ~paste0(cd_id, ": ", density_tercile),
+    labelOptions = labelOptions(
+      style = list("font-weight" = "normal", padding = "3px 8px"),
+      textsize = "12px",
+      direction = "auto"
+    )
+  ) |>
+  addLegend(
+    position = "bottomright",
+    pal = density_pal,
+    values = ~density_tercile,
+    title = "Population Density (2019)",
+    opacity = 0.8
+  ) |>
+  addControl(
+    html = "<div style='background:white; padding:8px; border-radius:4px;'>
+              <strong>Density Terciles</strong><br>
+              Based on 2019 population per square mile
+            </div>",
+    position = "topright"
+  ) |>
+  setView(lng = -73.95, lat = 40.7, zoom = 10)
+
+# Display the map
+density_map
+
+```
+
+
+And this map shows the spatial distribution of baseline residential density across New York City’s community districts, illustrating the strong clustering of high-density districts in Manhattan and inner Brooklyn/Queens that motivates the following borough fixed effects regression analysis.
+
+
+### Model 4: Borough Fixed Effects
+
+Because density varies sharply across boroughs, especially between Manhattan and the outer boroughs, I further estimate a regression model including borough fixed effects:
+
+$$
+\Delta P_i = \alpha + \beta \cdot \text{Density}_{i,2019}
++ \gamma \cdot \text{Income}_{i,2019}
++ \delta \cdot \text{Housing Stock}_{i,2019}
++ \eta \cdot \text{Borough}_i
++ \varepsilon_i
+$$
+
+
+This regression tests whether density operates **within boroughs**, or whether it simply captures broad geographic differences:
+
+
+```{r}
+#| label: regression-borough-fixed-effects
+#| code-summary: "Regression with Borough Fixed Effects"
+
+# Make Staten Island the reference category
+cd_analysis_df <- cd_analysis_df |>
+  mutate(borough = factor(borough, 
+                          levels = c("Staten Island", "Bronx", "Brooklyn", 
+                                   "Manhattan", "Queens")))
+
+# Add borough fixed effects to test whether density proxies for Manhattan
+price_density_borough_fe <- lm(
+  price_change_pct ~
+    pop_density_2019 +
+    median_income_2019 +
+    total_housing_2019 +
+    borough,
+  data = cd_analysis_df
+)
+
+tidy_regression(
+  price_density_borough_fe,
+  caption = "Model 4: Density with Borough Fixed Effects (Reference: Staten Island)"
+)
+
+# Extract borough effects with Staten Island as reference
+bronx_vs_si <- coef(price_density_borough_fe)["boroughBronx"]
+brooklyn_vs_si <- coef(price_density_borough_fe)["boroughBrooklyn"]
+manhattan_vs_si <- coef(price_density_borough_fe)["boroughManhattan"]
+queens_vs_si <- coef(price_density_borough_fe)["boroughQueens"]
+
+# Extract p-values
+bronx_pval <- summary(price_density_borough_fe)$coefficients["boroughBronx", "Pr(>|t|)"]
+manhattan_pval <- summary(price_density_borough_fe)$coefficients["boroughManhattan", "Pr(>|t|)"]
+queens_pval <- summary(price_density_borough_fe)$coefficients["boroughQueens", "Pr(>|t|)"]
+brooklyn_pval <- summary(price_density_borough_fe)$coefficients["boroughBrooklyn", "Pr(>|t|)"]
+
+```
+
+Using Staten Island as the reference category, the borough fixed effects capture how post-COVID property price growth differed across boroughs after controlling for population density, median income, and housing stock.
+
+Relative to Staten Island, Manhattan, Brooklyn, and Queens show lower estimated price growth, while the Bronx shows higher estimated growth; however, none of these differences are statistically significant at \alpha = 0.05 level (all p-values > 0.25).
+
+Once borough-level differences are accounted for, neither residential density nor borough identity exhibits a statistically significant independent effect on post-COVID price changes. This indicates that the supposed “density penalty” observed in simpler models does not survive controls for broader geographic structure, and that post-COVID price divergence is driven by correlated neighborhood characteristics rather than density itself.
+
+
+
+### Model 5: Integration with Team Analysis
+
+
+**The Overarching Question**
+
+**Did COVID-19 reshape the relationship between neighborhood characteristics and property values across NYC's Community Districts (CDs)?**
+
+
+My individual analysis in Model 1 showed that high-density community districts experienced weaker post-COVID price growth in isolation. However, density is strongly correlated with many other neighborhood features as was reflected in Models 2-4. To determine what deeper structural forces are reflected by density - I integrated my density measures into a multivariable model incorporating all five team-studied dimensions:
+
+- Residential density  
+- Educational attainment (percent BA+)  
+- Transit ridership change  
+- Crime rate change  
+- Job accessibility change  
+
+$$
+\Delta P_i = \alpha + \beta_1 \cdot \Delta \text{Density}_i
++ \beta_2 \cdot \Delta\text{Education}_i
++ \beta_3 \cdot \Delta\text{Transit}_i
++ \beta_4 \cdot \Delta\text{Crime}_i
++ \beta_5 \cdot \Delta\text{Jobs}_i
++ \varepsilon_i
+$$
+
+This integrated approach allows us to understand whether COVID reshaped housing values through physical form or through who lives and works in neighborhoods.
+
+
+### Team Data Integration
+```{r}
 #| label: team-data-preparation
 #| code-summary: "Prepare Team Variables for Multivariable Model"
 #| echo: false
 
-library(httr); library(data.table); library(readxl)
+# Load required packages for team data
+library(httr)
+library(data.table)
+library(readxl)
+
+# Ensure nyc_cd is in EPSG:2263 for all spatial joins
 nyc_cd_2263 <- nyc_cd |> st_transform(2263)
 
-# KELLY: Crime
-sql_crime <- "SELECT region_type AS region, region_id, year, value
-FROM indicator_values WHERE short_name = 'crime_all_rt' ORDER BY region_id, year"
-csv_url_crime <- paste0("https://nyufc.carto.com/api/v2/sql?q=", URLencode(sql_crime), "&format=csv")
+# ---- KELLY: Crime Change ----
+# Download crime data from Carto API
+sql_crime <- "
+SELECT region_type AS region,
+       region_id,
+       year,
+       value
+FROM indicator_values
+WHERE short_name = 'crime_all_rt'
+ORDER BY region_id, year
+"
+
+csv_url_crime <- paste0(
+  "https://nyufc.carto.com/api/v2/sql?q=", 
+  URLencode(sql_crime),
+  "&format=csv"
+)
+
 crime_long <- read_csv(csv_url_crime, show_col_types = FALSE)
+
+# Map to CD IDs
 cd_lookup_crime <- tibble(
   region_id = c(101:112, 201:212, 301:318, 401:414, 501:503),
-  cd_id = c(paste0("MN", sprintf("%02d", 1:12)), paste0("BX", sprintf("%02d", 1:12)),
-           paste0("BK", sprintf("%02d", 1:18)), paste0("QN", sprintf("%02d", 1:14)),
-           paste0("SI", sprintf("%02d", 1:3)))
+  cd_id = c(
+    paste0("MN", sprintf("%02d", 1:12)),
+    paste0("BX", sprintf("%02d", 1:12)),
+    paste0("BK", sprintf("%02d", 1:18)),
+    paste0("QN", sprintf("%02d", 1:14)),
+    paste0("SI", sprintf("%02d", 1:3))
+  )
 )
-crime_vars <- crime_long |> filter(region == "Community District") |>
-  left_join(cd_lookup_crime, by = "region_id") |> filter(!is.na(cd_id)) |>
-  mutate(period = case_when(year >= 2017 & year <= 2019 ~ "pre", year >= 2021 & year <= 2024 ~ "post",
-                           TRUE ~ NA_character_)) |>
-  filter(!is.na(period)) |> group_by(cd_id, period) |>
+
+crime_vars <- crime_long |>
+  filter(region == "Community District") |>
+  left_join(cd_lookup_crime, by = "region_id") |>
+  filter(!is.na(cd_id)) |>
+  mutate(
+    period = case_when(
+      year >= 2017 & year <= 2019 ~ "pre",
+      year >= 2021 & year <= 2024 ~ "post",
+      TRUE ~ NA_character_
+    )
+  ) |>
+  filter(!is.na(period)) |>
+  group_by(cd_id, period) |>
   summarise(avg_crime = mean(value, na.rm = TRUE), .groups = "drop") |>
   pivot_wider(names_from = period, values_from = avg_crime) |>
-  mutate(crime_pchange = 100 * (post - pre) / pre) |> select(cd_id, crime_pchange)
+  mutate(crime_pchange = 100 * (post - pre) / pre) |>
+  select(cd_id, crime_pchange)
 
-# TIFFANY: Transit
-subway_annual_data_2017_2022 <- function() {
+# ---- TIFFANY: Transit Ridership Change ----
+# MTA Subway Data
+subway_annual_data_2017_2022 <- function(save_file = FALSE, file_path = "mta_ridership.xlsx") {
+  # URL of the MTA Excel file
   url <- "https://www.mta.info/document/113331"
+
+  # Create a temporary file to store the download
   temp_file <- tempfile(fileext = ".xlsx")
+
+  # Download the file
   response <- GET(url, write_disk(temp_file, overwrite = TRUE))
+
+
+  # Get all sheet names
   sheet_names <- excel_sheets(temp_file)
-  annual_sheet <- grep("annual.*total|total.*annual", sheet_names, ignore.case = TRUE, value = TRUE)[1]
-  data <- read_excel(temp_file, sheet = annual_sheet, skip = 1) |> clean_names() |>
+
+  # Find the sheet with "annual" and "total" in the name (case-insensitive)
+  annual_sheet <- grep("annual.*total|total.*annual", sheet_names,
+                       ignore.case = TRUE, value = TRUE)
+
+  if (length(annual_sheet) == 0) {
+    stop("Could not find 'annual total' sheet. Available sheets: ",
+         paste(sheet_names, collapse = ", "))
+  }
+
+  # Use the first match if multiple sheets found
+  annual_sheet <- annual_sheet[1]
+
+  # Read the data from the annual total sheet
+  data <- read_excel(temp_file, sheet = annual_sheet, skip=1)
+
+  #clean data
+  data <- data |>
+    clean_names() |>
     rename_with(~ str_remove(., "^x(?=\\d{4})"), .cols = starts_with("x")) |>
-    mutate(station_name = str_trim(sub(" \\(.*$", "", station_alphabetical_by_borough))) |>
+    mutate(
+      station_name = str_trim(sub(" \\(.*$", "", `station_alphabetical_by_borough`))
+    ) |>
     filter(!station_alphabetical_by_borough %in% c("The Bronx", "Brooklyn", "Manhattan", "Queens", "Staten Island")) |>
-    select(station_name, boro, `2017`, `2018`, `2019`) |> filter(!is.na(boro))
+    select(station_name, station_alphabetical_by_borough, boro, `2017`, `2018`, `2019`) |>
+    filter(!is.na(boro))
+
   return(data)
 }
-subway_annual_data_2018_2023 <- function() {
+
+subway_annual_data_2018_2023 <- function(save_file = FALSE, file_path = "mta_ridership.xlsx") {
+  # URL of the MTA Excel file
   url <- "https://www.mta.info/document/137106"
+
+  # Create a temporary file to store the download
   temp_file <- tempfile(fileext = ".xlsx")
+
+  # Download the file
   response <- GET(url, write_disk(temp_file, overwrite = TRUE))
+
+
+  # Get all sheet names
   sheet_names <- excel_sheets(temp_file)
-  annual_sheet <- grep("annual.*total|total.*annual", sheet_names, ignore.case = TRUE, value = TRUE)[1]
-  data <- read_excel(temp_file, sheet = annual_sheet, skip = 1) |> clean_names() |>
+
+  # Find the sheet with "annual" and "total" in the name (case-insensitive)
+  annual_sheet <- grep("annual.*total|total.*annual", sheet_names,
+                       ignore.case = TRUE, value = TRUE)
+
+
+  # Use the first match if multiple sheets found
+  annual_sheet <- annual_sheet[1]
+
+  # Read the data from the annual total sheet
+  data <- read_excel(temp_file, sheet = annual_sheet, skip=1)
+
+  #clean data
+  data <- data |>
+    clean_names() |>
     rename_with(~ str_remove(., "^x(?=\\d{4})"), .cols = starts_with("x")) |>
-    mutate(station_name = str_trim(sub(" \\(.*$", "", station_alphabetical_by_borough))) |>
+    mutate(
+      station_name = str_trim(sub(" \\(.*$", "", `station_alphabetical_by_borough`))
+    ) |>
     filter(!station_alphabetical_by_borough %in% c("The Bronx", "Brooklyn", "Manhattan", "Queens", "Staten Island")) |>
-    select(station_name, boro, `2021`, `2022`, `2023`) |> filter(!is.na(boro))
+    select(station_name, station_alphabetical_by_borough, boro, `2021`, `2022`, `2023`) |>
+    filter(!is.na(boro))
+
   return(data)
 }
+
 precovid_subway_ridership <- subway_annual_data_2017_2022()
 postcovid_subway_ridership <- subway_annual_data_2018_2023()
+
+# Get MTA subway stations with geometry
 get_mta_subway_stations <- function() {
+  library(data.table)
+  library(dplyr)
+  library(sf)
+
+  # URL for MTA subway stations
   url <- "https://data.ny.gov/api/views/39hk-dx4f/rows.csv?accessType=DOWNLOAD"
+
+  # Read data directly into df
   df <- fread(url)
-  df_sf <- df |> mutate(geometry = st_as_sfc(Georeference, crs = 4326)) |>
-    st_as_sf(sf_column_name = "geometry") |> select(`Stop Name`, geometry) |> st_transform(crs = 2263)
+
+  # Convert Georeference to sf geometry
+  df_sf <- df |>
+    mutate(geometry = st_as_sfc(Georeference, crs = 4326)) |>
+    st_as_sf(sf_column_name = "geometry") |>
+    mutate(
+      longitude = st_coordinates(geometry)[, "X"],
+      latitude  = st_coordinates(geometry)[, "Y"]
+    ) |>
+    select(`Stop Name`, geometry)
+
+  # Transform CRS to match NYC (EPSG 2263 is commonly used for NYC local coordinates)
+  df_sf <- st_transform(df_sf, crs = 2263)
+
   return(df_sf)
 }
+
 stations <- get_mta_subway_stations()
-stations_cd <- st_join(stations, nyc_cd_2263, left = FALSE) |> st_drop_geometry()
-subway_pre <- precovid_subway_ridership |> select(station_name, `2017`, `2018`, `2019`) |>
+
+# Join stations to CDs (both now in EPSG:2263)
+stations_cd <- st_join(stations, nyc_cd_2263, left = FALSE) |>
+  st_drop_geometry()
+
+subway_pre <- precovid_subway_ridership |>
+  select(station_name, `2017`, `2018`, `2019`) |>
   pivot_longer(cols = c(`2017`, `2018`, `2019`), names_to = "year", values_to = "ridership") |>
   mutate(ridership = as.numeric(ridership))
-subway_post <- postcovid_subway_ridership |> select(station_name, `2021`, `2022`, `2023`) |>
+
+subway_post <- postcovid_subway_ridership |>
+  select(station_name, `2021`, `2022`, `2023`) |>
   pivot_longer(cols = c(`2021`, `2022`, `2023`), names_to = "year", values_to = "ridership") |>
   mutate(ridership = as.numeric(ridership))
-subway_by_cd_pre <- stations_cd |> left_join(subway_pre, by = c("Stop Name" = "station_name")) |>
-  group_by(cd_id) |> summarise(mean_precovid = mean(ridership, na.rm = TRUE), .groups = "drop")
-subway_by_cd_post <- stations_cd |> left_join(subway_post, by = c("Stop Name" = "station_name")) |>
-  group_by(cd_id) |> summarise(mean_postcovid = mean(ridership, na.rm = TRUE), .groups = "drop")
-transit_vars <- subway_by_cd_pre |> left_join(subway_by_cd_post, by = "cd_id") |>
-  mutate(ridership_change_pct = if_else(mean_precovid > 0,
-                                        (mean_postcovid - mean_precovid) / mean_precovid * 100, NA_real_)) |>
+
+subway_by_cd_pre <- stations_cd |>
+  left_join(subway_pre, by = c("Stop Name" = "station_name")) |>
+  group_by(cd_id) |>
+  summarise(mean_precovid = mean(ridership, na.rm = TRUE), .groups = "drop")
+
+subway_by_cd_post <- stations_cd |>
+  left_join(subway_post, by = c("Stop Name" = "station_name")) |>
+  group_by(cd_id) |>
+  summarise(mean_postcovid = mean(ridership, na.rm = TRUE), .groups = "drop")
+
+transit_vars <- subway_by_cd_pre |>
+  left_join(subway_by_cd_post, by = "cd_id") |>
+  mutate(
+    ridership_change_pct = if_else(
+      mean_precovid > 0,
+      (mean_postcovid - mean_precovid) / mean_precovid * 100,
+      NA_real_
+    )
+  ) |>
   select(cd_id, ridership_change_pct)
 
-# MADISON: Jobs
+# ---- MADISON: Jobs Change ----
+# Get LODES WAC data (workplace area characteristics)
 get_lodes_wac <- function(years = c(2017, 2018, 2019, 2021, 2022), dir_path = "data") {
   if (!dir.exists(dir_path)) dir.create(dir_path, recursive = TRUE)
+  
   base_url <- "https://lehd.ces.census.gov/data/lodes/LODES8/ny/wac/"
   all_years <- list()
+  
   for (yr in years) {
     expected_file <- sprintf("ny_wac_S000_JT00_%d.csv.gz", yr)
     fname <- file.path(dir_path, expected_file)
     file_url <- paste0(base_url, expected_file)
+    
     if (!file.exists(fname)) {
       tryCatch({
         download.file(file_url, destfile = fname, mode = "wb", quiet = TRUE)
         Sys.sleep(1)
-      }, error = function(e) { message("Could not download ", yr); next })
+      }, error = function(e) {
+        message("Could not download ", yr)
+        next
+      })
     }
-    df <- read_csv(fname, show_col_types = FALSE) |> mutate(year = yr)
+    
+    df <- read_csv(fname, show_col_types = FALSE) |>
+      mutate(year = yr)
+    
     all_years[[as.character(yr)]] <- df
   }
+  
   lodes_raw <- bind_rows(all_years)
   return(lodes_raw)
 }
+
 lodes_raw <- get_lodes_wac()
+
+# Get census blocks
 get_census_blocks <- function(dir_path = "data", batch_size = 500) {
   if (!dir.exists(dir_path)) dir.create(dir_path, recursive = TRUE)
+  
   fname <- file.path(dir_path, "nyc_blocks.rds")
-  if (file.exists(fname)) return(readRDS(fname))
+  
+  if (file.exists(fname)) {
+    return(readRDS(fname))
+  }
   
   counties <- c("005", "047", "061", "081", "085")
   all_blocks <- list()
+  
   for (county in counties) {
-    offset <- 0; chunk_index <- 1; county_blocks <- list()
+    offset <- 0
+    chunk_index <- 1
+    county_blocks <- list()
+    
     repeat {
       chunk_file <- file.path(dir_path, sprintf("blocks_%s_chunk_%03d.geojson", county, chunk_index))
+      
       if (!file.exists(chunk_file)) {
         tryCatch({
           req <- request("https://tigerweb.geo.census.gov/arcgis/rest/services/TIGERweb/tigerWMS_Census2020/MapServer/10/query") |>
-            req_url_query(where = sprintf("STATE='36' AND COUNTY='%s'", county), outFields = "GEOID",
-                         outSR = "4326", f = "geojson", resultOffset = offset, resultRecordCount = batch_size) |>
+            req_url_query(
+              where = sprintf("STATE='36' AND COUNTY='%s'", county),
+              outFields = "GEOID",
+              outSR = "4326",
+              f = "geojson",
+              resultOffset = offset,
+              resultRecordCount = batch_size
+            ) |>
             req_headers("User-Agent" = "Mozilla/5.0")
+          
           resp <- req_perform(req)
           writeLines(resp_body_string(resp), chunk_file)
           Sys.sleep(0.5)
-        }, error = function(e) break)
+        }, error = function(e) {
+          break
+        })
       }
+      
       blocks_chunk <- st_read(chunk_file, quiet = TRUE)
       n_rows <- nrow(blocks_chunk)
       county_blocks[[chunk_index]] <- blocks_chunk
+      
       if (n_rows < batch_size) break
-      offset <- offset + batch_size; chunk_index <- chunk_index + 1
+      offset <- offset + batch_size
+      chunk_index <- chunk_index + 1
     }
+    
     all_blocks[[county]] <- bind_rows(county_blocks)
   }
+  
   nyc_blocks <- bind_rows(all_blocks)
   saveRDS(nyc_blocks, fname)
   return(nyc_blocks)
 }
+
 nyc_blocks <- get_census_blocks()
-lodes_jobs <- lodes_raw |> select(w_geocode, C000, year) |> mutate(GEOID = sprintf("%015.0f", w_geocode))
-nyc_blocks_clean <- nyc_blocks |> st_transform(2263) |> mutate(GEOID = as.character(GEOID))
-lodes_blocks <- nyc_blocks_clean |> left_join(lodes_jobs, by = "GEOID") |> filter(!is.na(C000))
-blocks_to_cd <- nyc_blocks_clean |> st_make_valid() |> st_point_on_surface() |>
-  st_join(nyc_cd_2263 |> select(cd_id)) |> st_drop_geometry() |> select(GEOID, cd_id) |> filter(!is.na(cd_id))
-lodes_full <- lodes_blocks |> st_drop_geometry() |> inner_join(blocks_to_cd, by = "GEOID") |>
+
+# Map blocks to CDs
+lodes_jobs <- lodes_raw |>
+  select(w_geocode, C000, year) |>
+  mutate(GEOID = sprintf("%015.0f", w_geocode))
+
+nyc_blocks_clean <- nyc_blocks |>
+  st_transform(2263) |>  # Transform to EPSG:2263
+  mutate(GEOID = as.character(GEOID))
+
+lodes_blocks <- nyc_blocks_clean |>
+  left_join(lodes_jobs, by = "GEOID") |>
+  filter(!is.na(C000))
+
+# Map blocks to CDs using consistent CRS
+blocks_to_cd <- nyc_blocks_clean |>
+  st_make_valid() |>
+  st_point_on_surface() |>
+  st_join(nyc_cd_2263 |> select(cd_id)) |>  # Use nyc_cd_2263
+  st_drop_geometry() |>
+  select(GEOID, cd_id) |>
+  filter(!is.na(cd_id))
+
+lodes_full <- lodes_blocks |>
+  st_drop_geometry() |>
+  inner_join(blocks_to_cd, by = "GEOID") |>
   select(GEOID, cd_id, C000, year)
-jobs_by_cd <- lodes_full |> mutate(period = ifelse(year %in% c(2017:2019), "pre", "post")) |>
-  filter(!is.na(period)) |> group_by(cd_id, period) |>
+
+jobs_by_cd <- lodes_full |>
+  mutate(period = ifelse(year %in% c(2017:2019), "pre", "post")) |>
+  filter(!is.na(period)) |>
+  group_by(cd_id, period) |>
   summarise(total_jobs = sum(C000, na.rm = TRUE), .groups = "drop") |>
   pivot_wider(names_from = period, values_from = total_jobs) |>
   mutate(jobs_change_pct = (post - pre) / pre * 100)
-jobs_vars <- jobs_by_cd |> select(cd_id, jobs_change_pct)
 
-# EDUARDO: Education
+jobs_vars <- jobs_by_cd |>
+  select(cd_id, jobs_change_pct)
+
+# ---- EDUARDO: Education ----
+# Get ACS education data
 get_acs_cd_education_team <- function(end_year = 2019) {
-  acs_vars <- c("B15003_001", "B15003_022", "B15003_023", "B15003_024", "B15003_025")
+  acs_vars <- c(
+    "B15003_001",  # Total population 25+
+    "B15003_022",  # BA
+    "B15003_023",  # MA
+    "B15003_024",  # Professional
+    "B15003_025"   # Doctorate
+  )
+  
   acs_tracts <- suppressMessages(
-    get_acs(geography = "tract", variables = acs_vars, year = end_year, survey = "acs5",
-           state = "NY", county = c("005", "047", "061", "081", "085"),
-           geometry = TRUE, cache_table = TRUE, output = "wide")
-  ) |> clean_names() |>
-    transmute(geoid, total_pop_25plus = b15003_001e,
-             ba_plus = b15003_022e + b15003_023e + b15003_024e + b15003_025e, geometry) |>
+    get_acs(
+      geography = "tract",
+      variables = acs_vars,
+      year = end_year,
+      survey = "acs5",
+      state = "NY",
+      county = c("005", "047", "061", "081", "085"),
+      geometry = TRUE,
+      cache_table = TRUE,
+      output = "wide"
+    )
+  ) |>
+    clean_names() |>
+    transmute(
+      geoid,
+      total_pop_25plus = b15003_001e,
+      ba_plus = b15003_022e + b15003_023e + b15003_024e + b15003_025e,
+      geometry
+    ) |>
     filter(!is.na(total_pop_25plus), total_pop_25plus > 0)
   
   acs_tracts <- st_make_valid(acs_tracts)
-  cd_sf <- nyc_cd |> st_transform(st_crs(acs_tracts)) |> st_make_valid()
-  inter <- suppressWarnings(st_intersection(acs_tracts, cd_sf |> select(cd_id)))
-  inter <- inter |> mutate(inter_area = as.numeric(st_area(geometry)))
-  tract_areas <- acs_tracts |> transmute(geoid, tract_area = as.numeric(st_area(geometry))) |> st_drop_geometry()
-  inter <- inter |> st_drop_geometry() |> left_join(tract_areas, by = "geoid") |>
+  
+  # Transform nyc_cd to match ACS CRS
+  cd_sf <- nyc_cd |> 
+    st_transform(st_crs(acs_tracts)) |>
+    st_make_valid()
+  
+  inter <- suppressWarnings(
+    st_intersection(acs_tracts, cd_sf |> select(cd_id))
+  )
+  
+  inter <- inter |>
+    mutate(inter_area = as.numeric(st_area(geometry)))
+  
+  tract_areas <- acs_tracts |>
+    transmute(geoid, tract_area = as.numeric(st_area(geometry))) |>
+    st_drop_geometry()
+  
+  inter <- inter |>
+    st_drop_geometry() |>
+    left_join(tract_areas, by = "geoid") |>
     mutate(weight = if_else(tract_area > 0, inter_area / tract_area, 0))
   
-  cd_edu <- inter |> mutate(wt_total_pop_25plus = total_pop_25plus * weight, wt_ba_plus = ba_plus * weight) |>
+  cd_edu <- inter |>
+    mutate(
+      wt_total_pop_25plus = total_pop_25plus * weight,
+      wt_ba_plus = ba_plus * weight
+    ) |>
     group_by(cd_id) |>
-    summarise(total_pop_25plus = sum(wt_total_pop_25plus, na.rm = TRUE),
-             ba_plus = sum(wt_ba_plus, na.rm = TRUE), .groups = "drop") |>
-    mutate(pct_ba_plus = if_else(total_pop_25plus > 0, (ba_plus / total_pop_25plus) * 100, NA_real_))
+    summarise(
+      total_pop_25plus = sum(wt_total_pop_25plus, na.rm = TRUE),
+      ba_plus = sum(wt_ba_plus, na.rm = TRUE),
+      .groups = "drop"
+    ) |>
+    mutate(
+      pct_ba_plus = if_else(
+        total_pop_25plus > 0,
+        (ba_plus / total_pop_25plus) * 100,
+        NA_real_
+      )
+    )
+  
   return(cd_edu)
 }
+
 education_data <- get_acs_cd_education_team()
-education_vars <- education_data |> select(cd_id, pct_ba_plus_2019 = pct_ba_plus)
+education_vars <- education_data |>
+  select(cd_id, pct_ba_plus_2019 = pct_ba_plus)
 
+# ---- Density ----
 density_vars <- cd_analysis_df |>
-  select(cd_id, pop_density_2019, housing_density_2019, median_income_2019, price_change_pct,
-        avg_median_price_pre, avg_median_price_post, total_sales_pre, total_sales_post)
+  select(
+    cd_id,
+    pop_density_2019,
+    median_income_2019,
+    price_change_pct,
+    avg_median_price_pre,
+    avg_median_price_post,
+    total_sales_pre,
+    total_sales_post
+  )
 
-master_data <- density_vars |> left_join(education_vars, by = "cd_id") |>
-  left_join(transit_vars, by = "cd_id") |> left_join(crime_vars, by = "cd_id") |>
-  left_join(jobs_vars, by = "cd_id") |> na.omit()
+# ---- MERGE ALL TEAM DATA ----
+master_data <- density_vars |>
+  left_join(education_vars, by = "cd_id") |>
+  left_join(transit_vars, by = "cd_id") |>
+  left_join(crime_vars, by = "cd_id") |>
+  left_join(jobs_vars, by = "cd_id") |>
+  na.omit()
 
 message("Team dataset: ", nrow(master_data), " CDs with complete data")
 
+# Show summary
 master_data |>
-  select(cd_id, price_change_pct, housing_density_2019, pct_ba_plus_2019,
-        ridership_change_pct, crime_pchange, jobs_change_pct) |>
-  head(10) |> kable(caption = "Team Analysis Dataset (First 10 CDs)", digits = 2)
+  select(cd_id, price_change_pct, pop_density_2019, pct_ba_plus_2019,
+         ridership_change_pct, crime_pchange, jobs_change_pct) |>
+  head(10) |>
+  kable(
+    col.names = c(
+      "Community District",
+      "Price Change (%)",
+      "Population Density (2019)",
+      "BA+ Attainment (%)",
+      "Transit Ridership Change (%)",
+      "Crime Rate Change (%)",
+      "Job Accessibility Change (%)"
+    ),
+    caption = "Team Analysis Dataset (First 10 Community Districts)",
+    digits = 2,
+    align = c("l", "r", "r", "r", "r", "r", "r")
+  )
 ```
+
 
 #### Team Model Results
 
-```{r team-model-display}
+```{r}
 #| label: team-model-tables
 #| echo: false
 
-team_model1 <- lm(price_change_pct ~ housing_density_2019, data = master_data)
-team_model2 <- lm(price_change_pct ~ housing_density_2019 + pct_ba_plus_2019 +
-                   ridership_change_pct + crime_pchange + jobs_change_pct, data = master_data)
-team_model3 <- lm(price_change_pct ~ housing_density_2019 * crime_pchange +
-                   pct_ba_plus_2019 + ridership_change_pct + jobs_change_pct, data = master_data)
+# Full team model
+team_model <- lm(
+  price_change_pct ~ pop_density_2019 + pct_ba_plus_2019 +
+    ridership_change_pct + crime_pchange + jobs_change_pct,
+  data = master_data
+)
 
-tidy(team_model2, conf.int = TRUE) |>
+# Display full model results
+tidy(team_model, conf.int = TRUE) |>
   mutate(
-    term = case_when(term == "(Intercept)" ~ "Intercept", term == "housing_density_2019" ~ "Housing Density (2019)",
-                    term == "pct_ba_plus_2019" ~ "BA+ Attainment % (2019)",
-                    term == "ridership_change_pct" ~ "Transit Ridership Change %",
-                    term == "crime_pchange" ~ "Crime Rate Change %",
-                    term == "jobs_change_pct" ~ "Job Accessibility Change %", TRUE ~ term),
+    term = case_when(
+      term == "(Intercept)" ~ "Intercept",
+      term == "pop_density_2019" ~ "Residential Density (2019)",
+      term == "pct_ba_plus_2019" ~ "BA+ Attainment % (2019)",
+      term == "ridership_change_pct" ~ "Transit Ridership Change %",
+      term == "crime_pchange" ~ "Crime Rate Change %",
+      term == "jobs_change_pct" ~ "Job Accessibility Change %",
+      TRUE ~ term
+    ),
     across(where(is.numeric), ~round(., 4)),
     p.value = if_else(p.value < 0.001, "< 0.001", as.character(round(p.value, 4)))
   ) |>
   select(term, estimate, std.error, statistic, p.value, conf.low, conf.high) |>
-  kable(col.names = c("Variable", "Coefficient", "Std Error", "t-stat", "p-value", "CI Lower", "CI Upper"),
-       caption = "Team Model: All Neighborhood Characteristics → Price Change",
-       align = c("l", "r", "r", "r", "r", "r", "r"))
+  kable(
+    col.names = c("Variable", "Coefficient", "Std Error", "t-stat", "p-value", "CI Lower", "CI Upper"),
+    caption = "Team Model: All Neighborhood Characteristics → Price Change",
+    align = c("l", "r", "r", "r", "r", "r", "r")
+  )
 
-tibble(
-  Model = c("Density Only", "Full Team Model", "Density × Crime"),
-  Variables = c("Housing Density", "All 5 Characteristics", "+ Interaction Term"),
-  N = c(nrow(master_data), nrow(master_data), nrow(master_data)),
-  R_squared = c(round(summary(team_model1)$r.squared, 3), round(summary(team_model2)$r.squared, 3),
-               round(summary(team_model3)$r.squared, 3)),
-  Adj_R_squared = c(round(summary(team_model1)$adj.r.squared, 3), round(summary(team_model2)$adj.r.squared, 3),
-                   round(summary(team_model3)$adj.r.squared, 3))
-) |> kable(caption = "Model Comparison: Individual vs Team Analysis", align = c("l", "l", "r", "r", "r"))
 ```
 
-```{r team-findings}
+```{r}
 #| echo: false
+#| label: team-findings
 
-density_coef_m2 <- coef(team_model2)["housing_density_2019"]
-density_pval_m2 <- summary(team_model2)$coefficients["housing_density_2019", "Pr(>|t|)"]
-r2_improvement <- summary(team_model2)$r.squared - summary(team_model1)$r.squared
-density_contribution <- summary(team_model1)$r.squared / summary(team_model2)$r.squared
+# Extract ALL coefficients
+density_coef <- coef(team_model)["pop_density_2019"]
+density_pval <- summary(team_model)$coefficients["pop_density_2019", "Pr(>|t|)"]
+density_se <- summary(team_model)$coefficients["pop_density_2019", "Std. Error"]
+density_tstat <- summary(team_model)$coefficients["pop_density_2019", "t value"]
 
-transit_pval <- summary(team_model2)$coefficients["ridership_change_pct", "Pr(>|t|)"]
-crime_pval <- summary(team_model2)$coefficients["crime_pchange", "Pr(>|t|)"]
-jobs_pval <- summary(team_model2)$coefficients["jobs_change_pct", "Pr(>|t|)"]
-edu_pval <- summary(team_model2)$coefficients["pct_ba_plus_2019", "Pr(>|t|)"]
-edu_coef <- coef(team_model2)["pct_ba_plus_2019"]
+edu_coef <- coef(team_model)["pct_ba_plus_2019"]
+edu_pval <- summary(team_model)$coefficients["pct_ba_plus_2019", "Pr(>|t|)"]
+edu_se <- summary(team_model)$coefficients["pct_ba_plus_2019", "Std. Error"]
+
+transit_coef <- coef(team_model)["ridership_change_pct"]
+transit_pval <- summary(team_model)$coefficients["ridership_change_pct", "Pr(>|t|)"]
+transit_se <- summary(team_model)$coefficients["ridership_change_pct", "Std. Error"]
+
+crime_coef <- coef(team_model)["crime_pchange"]
+crime_pval <- summary(team_model)$coefficients["crime_pchange", "Pr(>|t|)"]
+crime_se <- summary(team_model)$coefficients["crime_pchange", "Std. Error"]
+
+jobs_coef <- coef(team_model)["jobs_change_pct"]
+jobs_pval <- summary(team_model)$coefficients["jobs_change_pct", "Pr(>|t|)"]
+jobs_se <- summary(team_model)$coefficients["jobs_change_pct", "Std. Error"]
+
+# Extract confidence intervals
+ci_all <- confint(team_model)
+density_ci <- ci_all["pop_density_2019", ]
+edu_ci <- ci_all["pct_ba_plus_2019", ]
+transit_ci <- ci_all["ridership_change_pct", ]
+crime_ci <- ci_all["crime_pchange", ]
+jobs_ci <- ci_all["jobs_change_pct", ]
+
+# Model fit statistics
+team_r2 <- summary(team_model)$r.squared
+team_adj_r2 <- summary(team_model)$adj.r.squared
+team_n <- nobs(team_model)
+team_fstat <- summary(team_model)$fstatistic[1]
+
 ```
 
-The team model reveals **density is not significant** (p = `r round(density_pval_m2, 4)`) after controlling for other factors. The apparent density penalty is **spurious**, driven by correlated characteristics—particularly education. **Educational attainment is the only significant predictor** (coefficient = `r round(edu_coef, 4)`, p < 0.001). Each 1 percentage point increase in BA+ attainment predicts `r round(abs(edu_coef), 2)`% lower appreciation. R² increases from `r round(summary(team_model1)$r.squared, 3)` to `r round(summary(team_model2)$r.squared, 3)`, but this improvement reflects **education, not density**. Transit (p = `r round(transit_pval, 4)`), crime (p = `r round(crime_pval, 4)`), and jobs (p = `r round(jobs_pval, 4)`) are all non-significant.
+**Educational Attainment (% with BA or Higher)**
 
-```{r team-interaction}
-#| label: team-interaction-model
-#| echo: false
+Educational attainment is the strongest and only statistically significant predictor in the model (β = `r round(edu_coef, 4)`, p < 0.001). Each one–percentage point increase in BA+ attainment is associated with a `r abs(round(edu_coef, 3))` percentage point decrease in post-COVID price growth, holding other factors constant. This suggests that socioeconomic composition, rather than physical density or amenities, was the dominant driver of post-COVID housing market divergence.
 
-tidy(team_model3, conf.int = TRUE) |>
-  filter(grepl(":", term) | grepl("density", term) | grepl("crime", term)) |>
-  mutate(
-    term = case_when(term == "housing_density_2019" ~ "Housing Density (2019)",
-                    term == "crime_pchange" ~ "Crime Rate Change %",
-                    term == "housing_density_2019:crime_pchange" ~ "Density × Crime [INTERACTION]", TRUE ~ term),
-    across(where(is.numeric), ~round(., 6)),
-    p.value = if_else(p.value < 0.001, "< 0.001", as.character(round(p.value, 4)))
-  ) |>
-  select(term, estimate, std.error, p.value) |>
-  kable(col.names = c("Variable", "Coefficient", "Std Error", "p-value"),
-       caption = "Interaction Model: Does Crime Amplify the Density Penalty?", align = c("l", "r", "r", "r"))
+**Residential Density (Population per Square Mile)**
 
-interaction_pval <- summary(team_model3)$coefficients["housing_density_2019:crime_pchange", "Pr(>|t|)"]
-```
+Population density still remains statistically insignificant, indicating that density does not independently predict post-COVID price changes once education, transit, crime, and job accessibility are accounted for.
 
-The density × crime interaction is `r if_else(interaction_pval < 0.05, "significant", "not significant")` (p = `r round(interaction_pval, 4)`). `r if_else(interaction_pval < 0.05, "Dense neighborhoods with crime increases suffered compounded penalties.", "Crime and density operate independently.")`
+**Transit Ridership Change**
 
-**Synthesis**: The team model fundamentally revises individual findings. **Density is NOT an independent factor**—when accounting for education, transit, crime, and jobs, density becomes non-significant (p = `r round(density_pval_m2, 4)`). **Education dominates** (coefficient = `r round(edu_coef, 4)`, p < 0.001). The post-COVID property divergence reflects **remote work capacity** and **demographic sorting**, not physical density. Policies should focus on retaining educated residents through quality-of-life improvements, converting office space, and attracting remote workers—not redesigning dense buildings.
+Transit ridership recovery is negatively associated with price growth (β = `r round(transit_coef, 4)`), but insignificant (p = `r format.pval(transit_pval, digits = 3)`). Changes in transit usage do not independently explain price trajectories after controlling for education, crime rate, job accessibility and density.
 
-### Geographic Heterogeneity
+**Crime Rate Change**
 
-```{r borough-analysis}
-#| label: borough-correlations
-#| code-summary: "Borough-Level Correlations"
-#| echo: false
+Changes in crime rates show no statistically significant association with post-COVID price growth (β = `r round(crime_coef, 4)`, p = `r format.pval(crime_pval, digits = 3)`), indicating that neighborhood safety conditions did not operate as an independent mechanism affecting property values during this period.
 
-cor_pre <- cor.test(cd_analysis_df$housing_density_2019, cd_analysis_df$avg_median_price_pre)
-cor_post <- cor.test(cd_analysis_df$housing_density_2019, cd_analysis_df$avg_median_price_post)
-cor_change <- cor.test(cd_analysis_df$housing_density_2019, cd_analysis_df$price_change_pct)
+**Job Accessibility Change**
 
-tibble(
-  Period = c("Pre-COVID (2017-2019)", "Post-COVID (2021-2023)", "Price Change (%)"),
-  Correlation = round(c(cor_pre$estimate, cor_post$estimate, cor_change$estimate), 3),
-  P_value = c(cor_pre$p.value, cor_post$p.value, cor_change$p.value),
-  CI_95 = paste0("[", round(c(cor_pre$conf.int[1], cor_post$conf.int[1], cor_change$conf.int[1]), 3), ", ",
-                round(c(cor_pre$conf.int[2], cor_post$conf.int[2], cor_change$conf.int[2]), 3), "]")
+Job accessibility changes are also not statistically significant (β = `r round(jobs_coef, 4)`, p = `r format.pval(jobs_pval, digits = 3)`), suggesting that traditional job–housing linkages weakened during COVID, consistent with the expansion of remote work.
+
+
+```{r}
+#| label: model-comparison
+#| code-summary: "Increasing Model Performances"
+
+
+model_comparison <- tibble(
+  Model = c(
+    "Model 1: Density Only",
+    "Model 2: + Controls",
+    "Model 3: Density Terciles",
+    "Model 4: + Borough FE",
+    "Model 5: Multivariable Regression"
+  ),
+  N = c(
+    nobs(price_density_model),
+    nobs(price_density_model_controls),
+    nobs(price_density_tercile_model),
+    nobs(price_density_borough_fe),
+    nobs(team_model)
+    
+  ),
+  R_squared = c(
+    summary(price_density_model)$r.squared,
+    summary(price_density_model_controls)$r.squared,
+    summary(price_density_tercile_model)$r.squared,
+    summary(price_density_borough_fe)$r.squared,
+    summary(team_model)$r.squared
+  ),
+  Adj_R_squared = c(
+    NA,
+    summary(price_density_model_controls)$adj.r.squared,
+    summary(price_density_tercile_model)$adj.r.squared,
+    summary(price_density_borough_fe)$adj.r.squared,
+    summary(team_model)$adj.r.squared
+    
+  )
 ) |>
-  mutate(P_value = if_else(P_value < 0.001, "< 0.001", as.character(round(P_value, 4)))) |>
-  kable(caption = "Citywide Density-Price Correlations", align = c("l", "r", "r", "l"))
+  mutate(
+    across(where(is.numeric), ~ round(., 3))
+  )
+
+model_comparison |>
+  kable(
+    caption = "Model Fit Comparison Across Density Specifications",
+    align = c("l", "r", "r", "r", "r")
+  )
 ```
 
-The density-price correlation weakened from r = `r round(cor_pre$estimate, 3)` pre-COVID to r = `r round(cor_post$estimate, 3)` post-COVID. However, the team model reveals this correlation is **spurious**—it reflects education rather than density itself.
+The full team model explains `r round(team_r2 * 100, 1)`% of the variation in post-COVID property price changes across NYC community districts (Adjusted R² = `r round(team_adj_r2, 3)`, N = `r team_n`), indicating that post-COVID housing outcomes reflect multiple correlated neighborhood characteristics rather than each charateristic alone. We can observe a visualization below:
 
-```{r borough-scatter}
-#| label: borough-scatter-plots
-#| code-summary: "Borough-Specific Scatterplots"
-#| fig-cap: "Density-Price Relationship by Borough: Pre vs Post COVID"
-#| fig-width: 14
-#| fig-height: 10
-#| echo: false
+```{r}
+#| label: model-visualization
+#| code-summary: "Multivariable Regression Visualization"
 
-scatter_data <- cd_analysis_df |>
-  select(cd_id, borough, housing_density_2019, avg_median_price_pre, avg_median_price_post) |>
-  pivot_longer(cols = c(avg_median_price_pre, avg_median_price_post), names_to = "period", values_to = "median_price") |>
-  mutate(period = if_else(period == "avg_median_price_pre", "Pre-COVID (2017-2019)", "Post-COVID (2021-2023)"))
+# Tidy team model for plotting
+team_model_tidy <- tidy(team_model, conf.int = TRUE) |>
+  filter(term != "(Intercept)") |>
+  mutate(
+    term = case_when(
+      term == "pop_density_2019" ~ "Population Density (2019)",
+      term == "pct_ba_plus_2019" ~ "BA+ Attainment (%)",
+      term == "ridership_change_pct" ~ "Transit Ridership Change (%)",
+      term == "crime_pchange" ~ "Crime Rate Change (%)",
+      term == "jobs_change_pct" ~ "Job Accessibility Change (%)",
+      TRUE ~ term
+    ),
+    significant = if_else(p.value < 0.05, "Yes", "No")
+  )
 
-plot3 <- ggplot(scatter_data, aes(x = housing_density_2019, y = median_price)) +
-  geom_point(aes(color = period), size = 2, alpha = 0.7) +
-  geom_smooth(aes(color = period), method = "lm", se = TRUE, alpha = 0.2) +
-  facet_wrap(~borough, scales = "free", ncol = 3) +
-  scale_color_manual(values = c("Pre-COVID (2017-2019)" = "#3288bd", "Post-COVID (2021-2023)" = "#d53e4f"),
-                    name = "Period") +
-  scale_y_continuous(labels = dollar_format()) + scale_x_continuous(labels = comma) +
-  labs(title = "Density-Price Relationship by Borough: Pre vs Post COVID",
-       subtitle = "The relationship weakened, but this reflects education sorting, not density itself",
-       x = "Housing Density (units per sq mi, 2019)", y = "Median Property Value ($)",
-       caption = "Each point = Community District | Lines = linear regression") +
-  theme_minimal(base_size = 11) +
-  theme(plot.title = element_text(face = "bold", size = 14), strip.text = element_text(face = "bold"),
-       legend.position = "bottom", panel.grid.minor = element_blank())
-
-plot3
-ggsave("output/density_scatter_by_borough.png", plot3, width = 14, height = 10, dpi = 300)
+# Coefficient plot (rendered inline)
+ggplot(
+  team_model_tidy,
+  aes(
+    x = reorder(term, estimate),
+    y = estimate,
+    color = significant
+  )
+) +
+  geom_point(size = 4) +
+  geom_errorbar(
+    aes(ymin = conf.low, ymax = conf.high),
+    width = 0.2,
+    linewidth = 1
+  ) +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "gray50") +
+  coord_flip() +
+  scale_color_manual(
+    values = c("No" = "gray60", "Yes" = "#E31A1C")
+  ) +
+  labs(
+    title = "Predictors of Post-COVID Property Value Change",
+    subtitle = "Multivariable Model Across NYC Community Districts",
+    x = NULL,
+    y = "Estimated Effect on Price Change (%)",
+    color = "Statistically Significant (p < 0.05)"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(
+    legend.position = "bottom",
+    plot.title = element_text(face = "bold", size = 14),
+    plot.subtitle = element_text(size = 11),
+    panel.grid.minor = element_blank()
+  )
 ```
 
-Manhattan's dense neighborhoods retained more value, but this is driven by **educational and income composition** rather than density advantages.
+## Summary of Findings
 
-### Policy Implications
+The multivariable team model reveals that educational attainment is the most significant driver of post-COVID property value changes out all other neighborhood characteristics, consistent with pandemic-era patterns favoring remote-work-capable populations.
 
-The findings shift focus from physical density interventions to **demographic retention strategies**. Rather than redesigning buildings, planners should prioritize amenities attracting educated workers: parks, cultural venues, cafes, coworking spaces, quality schools. The density penalty is actually an **education and remote-work penalty**. Neighborhoods losing educated residents face declines regardless of density. Policies should incentivize office-to-residential conversions, support commercial districts experiencing worker exodus, invest in quality-of-life improvements appealing to remote workers, and recognize upzoning alone won't solve affordability if it attracts educated residents. Post-pandemic valuations must consider **demographic composition**, not just density. High-education neighborhoods are stable regardless of density.
+The supposed “density penalty” I investigated actually reflects who lives in dense neighborhoods, not density itself. And COVID-19 reshaped NYC’s housing market primarily through demographic and occupational sorting, rather than through physical crowding, transit dependence, crime, or job proximity.
 
-## Conclusion
+### Limitations and Scope
 
-**1. Density is not independently significant**: The team model reveals density effects disappear (p = `r round(density_pval_m2, 4)`) when controlling for education, transit, crime, and jobs. The 2.3 percentage point penalty observed in isolation was **spurious**.
+This analysis remains an observational study. Although the pandemic provides a sharp temporal break, unobserved time-varying factors, such as changing preferences for schools, social spaces or neighborhood services, may still confound our regression. Additionally, density and education are measured using 2019 baselines and does not capture the extreme short-term population shifts during COVID. Finally, community districts remain aggregate units that may obscure distinctions among residences within block neighborhoods. 
 
-**2. Education is the dominant factor**: Educational attainment was the **only significant predictor** (coefficient = `r round(edu_coef, 4)`, p < 0.001). Each 1 percentage point increase in BA+ attainment predicted `r round(abs(edu_coef), 2)`% lower price growth, reflecting **remote work capacity**.
+Nevertheless, our community districts design, regression hierarchy, and integration of multiple neighborhood mechanisms provide further evidence of the persistent impacts of COVID-19 that affects us to this day. 
 
-**3. Other factors are non-significant**: Transit (p = `r round(transit_pval, 4)`), crime (p = `r round(crime_pval, 4)`), and jobs (p = `r round(jobs_pval, 4)`) failed to reach significance.
+### Conclusion
 
-**Contribution**: This analysis reveals post-COVID property reshuffling was about **who** could leave, not **where** they were leaving from. Density appeared important in bivariate analysis only because dense neighborhoods have more educated residents. Once education is controlled, density's effect vanishes.
+Overall, the COVID-19 pandemic did not fundamentally overturn the dynamics of urban density within New York City. While high-density neighborhoods experienced weaker price growth in raw comparisons, this pattern does not reflect an independent penalty associated with residential density. Instead, post-COVID price changes was significantly driven by who lives in specific neighborhoods and where those neighborhoods are located, not by crowding itself.
 
-**Broader implications**: This represents a **correction** to initial interpretations. Yes, neighborhood-value relationships changed—but the mechanism is **occupational sorting** (remote work enabling educated workers to relocate) rather than density becoming undesirable. Chicago School urban economics holds: density still commands premiums, but composition matters.
+For future research, it would be constructive to investigate:
 
-**Future research**: (1) whether educated workers are permanently relocating, (2) how return-to-office mandates affect preferences, (3) whether less-educated neighborhoods can attract educated remote workers, and (4) how patterns vary in cities with different remote work adoption.
+- whether educated workers are permanently relocating 
+- how returning to office requirements may affect preferences
+- whether less-educated neighborhoods can attract educated remote workers
+- and how patterns vary in cities with different remote work policies
 
-**Revised understanding**: COVID didn't create a "density penalty"—it revealed a **remote work sorting effect**. Dense neighborhoods with educated residents experienced slower appreciation as some relocated. The solution isn't reducing density but making urban living appealing enough that remote workers stay.
+
+### Data Sources and References
+
+**New York City Department of Finance.**  
+*New York City Rolling Sales Data.* 
+NYC Open Data Portal. https://data.cityofnewyork.us/City-Government/DOF-Property-Sales/w2pb-icbu  
+
+**New York City Department of City Planning.**  
+*Primary Land Use Tax Lot Output (PLUTO).* https://data.cityofnewyork.us/City-Government/Primary-Land-Use-Tax-Lot-Output-PLUTO-/64uk-42ks  
+*New York City Community District Boundaries.* https://services5.arcgis.com/GfwWNkhOj9bNBqoJ/arcgis/rest/services/NYC_Community_Districts  
+
+**U.S. Census Bureau.**  
+*American Community Survey (ACS) 5-Year Estimates, 2015–2019.* https://www.census.gov/programs-surveys/acs  
+
+
+**U.S. Census Bureau.**  
+*Longitudinal Employer–Household Dynamics (LEHD) Origin–Destination Employment Statistics (LODES).* https://lehd.ces.census.gov/data/  
+
+
+**Metropolitan Transportation Authority (MTA).**  
+*Annual Subway Ridership Statistics.* https://www.mta.info/open-data  
+
+
+**New York University Furman Center.**  
+*NYC Crime Indicators Database.* https://furmancenter.org/  
+
+**Hermann, A., & Whitney, P. (2024).**  
+*The Geography of Pandemic-Era Home Price Trends and the Implications for Affordability.* Harvard Joint Center for Housing Studies.
+
+
+
